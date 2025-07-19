@@ -2,103 +2,107 @@ import os
 import streamlit as st
 import requests
 import json
-import random
+import re
 
-st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
+st.set_page_config(page_title="PMP AI Quiz Generator", layout="centered")
 
 # --- Banner ---
 st.markdown("""
-    <div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%); 
+    <div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
     display:flex; align-items:center; justify-content:center; margin-bottom:30px; border-radius:0 0 10px 10px;'>
-        <h1 style='color:#222; font-size:2rem; font-weight:700; margin:0;'>OpSynergy PMP AI Quiz Generator</h1>
+        <h1 style='color:#222; font-size:2rem; font-weight:700;'>PMP AI Quiz Generator</h1>
     </div>
 """, unsafe_allow_html=True)
 
 st.markdown("### Powered by Groq & LLaMA 3")
-st.write("Enter a PMP topic or leave blank for a random question:")
+st.markdown("Enter a PMP topic or leave blank for a random question:")
 
 topic = st.text_input("")
 
-if 'question' not in st.session_state:
-    st.session_state.question = None
-if 'choices' not in st.session_state:
-    st.session_state.choices = []
-if 'correct' not in st.session_state:
-    st.session_state.correct = None
-if 'explanation' not in st.session_state:
-    st.session_state.explanation = ""
-if 'user_answer' not in st.session_state:
-    st.session_state.user_answer = None
+if "question_data" not in st.session_state:
+    st.session_state.question_data = None
+if "show_result" not in st.session_state:
+    st.session_state.show_result = False
+if "selected_answer" not in st.session_state:
+    st.session_state.selected_answer = None
 
-def call_groq_api(topic):
-    prompt = f"Generate a PMP exam-style multiple-choice question on {topic if topic else 'a random topic'}, with four answer options labeled A through D. Mark the correct answer clearly. Provide a short explanation."
-    
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "llama3-8b-8192",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 1.0
-        }
-    )
+def call_groq(prompt):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "model": "llama3-70b-8192",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.4
+    }
 
-    content = response.json()['choices'][0]['message']['content']
-    return parse_response(content)
+    response = requests.post(url, headers=headers, json=body)
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
 
-def parse_response(content):
-    try:
-        question = ""
-        choices = []
-        correct_answer = ""
-        explanation = ""
+def generate_prompt(topic):
+    return f"""
+Generate a PMP multiple choice exam question in JSON format with 4 labeled answer choices.
 
-        lines = content.splitlines()
-        for i, line in enumerate(lines):
-            if line.strip().lower().startswith("question:"):
-                question = line.split(":", 1)[1].strip()
-            elif any(line.strip().startswith(opt) for opt in ["A.", "B.", "C.", "D."]):
-                choices.append(line.strip())
-            elif "correct answer" in line.lower():
-                correct_answer = line.split(":")[-1].strip().split()[0]
-            elif "explanation" in line.lower():
-                explanation = line.split(":", 1)[-1].strip()
+The response must be valid JSON and follow this format exactly:
 
-        if not (question and choices and correct_answer):
-            raise ValueError("Missing data in response")
+{{
+  "question": "Your question here",
+  "choices": {{
+    "A": "Option A",
+    "B": "Option B",
+    "C": "Option C",
+    "D": "Option D"
+  }},
+  "correct": "B",
+  "explanation": "Explanation of why this is the correct answer"
+}}
 
-        return {
-            "question": question,
-            "choices": choices,
-            "correct": correct_answer[0].upper(),
-            "explanation": explanation
-        }
-    except Exception as e:
-        return None
+Topic: {topic if topic.strip() else "Any PMP-related topic"}
+Only return the JSON. Do not include markdown formatting or text before or after.
+    """
+
+def parse_question(raw_text):
+    # Try to extract JSON from any surrounding text or formatting
+    json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+    if not json_match:
+        raise ValueError("Failed to extract JSON")
+    return json.loads(json_match.group())
 
 if st.button("Generate Question"):
-    data = call_groq_api(topic)
-    if data:
-        st.session_state.question = data["question"]
-        st.session_state.choices = data["choices"]
-        st.session_state.correct = data["correct"]
-        st.session_state.explanation = data["explanation"]
-        st.session_state.user_answer = None
-    else:
+    try:
+        with st.spinner("Generating..."):
+            prompt = generate_prompt(topic)
+            raw_output = call_groq(prompt)
+            question_data = parse_question(raw_output)
+            st.session_state.question_data = question_data
+            st.session_state.show_result = False
+            st.session_state.selected_answer = None
+    except Exception as e:
         st.error("Sorry, something went wrong parsing the question.")
+        st.stop()
 
-if st.session_state.question:
-    st.markdown(f"### {st.session_state.question}")
-    st.session_state.user_answer = st.radio("Choose your answer:", st.session_state.choices, key="answer_choice")
+if st.session_state.question_data:
+    q = st.session_state.question_data
+    st.markdown(f"### {q['question']}")
 
-    if st.button("Submit Answer"):
-        if st.session_state.user_answer:
-            selected_letter = st.session_state.user_answer.split(".")[0].strip().upper()
-            if selected_letter == st.session_state.correct:
-                st.success("✅ Correct!")
-            else:
-                st.error(f"❌ Incorrect. The correct answer is {st.session_state.correct}.")
-            st.info(f"**Explanation:** {st.session_state.explanation}")
+    selected = st.radio(
+        "Choose your answer:",
+        options=list(q["choices"].items()),
+        format_func=lambda x: f"{x[0]}. {x[1]}",
+        index=None,
+        key="selected_answer"
+    )
+
+    if selected and not st.session_state.show_result:
+        st.session_state.show_result = True
+
+    if st.session_state.show_result and selected:
+        if selected[0] == q["correct"]:
+            st.success("✅ Correct!")
+        else:
+            st.error(f"❌ Incorrect. Correct answer is {q['correct']}.")
+
+        st.info(f"**Explanation:** {q['explanation']}")
