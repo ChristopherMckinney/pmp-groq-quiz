@@ -2,7 +2,6 @@ import os
 import streamlit as st
 import requests
 import json
-import re
 
 st.set_page_config(page_title="PMP AI Quiz Generator", layout="centered")
 
@@ -14,82 +13,74 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# --- Title ---
 st.markdown("### Powered by Groq & LLaMA 3")
 st.write("Enter a PMP topic or leave blank for a random question:")
 
-# --- Input ---
 topic = st.text_input("")
-submit = st.button("Generate Question")
+generate = st.button("Generate Question")
 
-# --- Secure Key ---
-api_key = os.getenv("OPENROUTER_API_KEY")
+question_data = None
+selected_answer = None
 
-# --- Headers ---
-headers = {
-    "Authorization": f"Bearer {api_key}",
-    "Content-Type": "application/json"
-}
+def generate_prompt(topic):
+    return f"""
+You are a PMP exam tutor. Return only a single PMP multiple choice exam question in valid JSON format as shown:
 
-# --- Extract Function ---
-def extract_question_data(response_text):
-    try:
-        json_str_match = re.search(r"\{.*?\}", response_text, re.DOTALL)
-        if json_str_match:
-            json_str = json_str_match.group(0)
-            data = json.loads(json_str)
-            return {
-                "question": data["question"],
-                "choices": data["choices"],
-                "correct": data["correct"],
-                "explanation": data["explanation"]
-            }
-    except Exception as e:
-        print(f"Parsing error: {e}")
-    return None
-
-# --- Display Logic ---
-if submit:
-    prompt = f"""Generate a PMP multiple choice exam question in JSON format:
-- Format:
 {{
-  "question": "...",
+  "question": "What is the primary purpose of a Work Breakdown Structure (WBS)?",
   "choices": {{
-    "A": "...",
-    "B": "...",
-    "C": "...",
-    "D": "..."
+    "A": "Identify stakeholders",
+    "B": "Break down the project into manageable components",
+    "C": "Control project costs",
+    "D": "Define quality standards"
   }},
-  "correct": "X",
-  "explanation": "..."
+  "correct": "B",
+  "explanation": "The WBS helps in decomposing the overall project into smaller, more manageable components."
 }}
-Only output the JSON, no markdown or extra commentary.
-Topic: {topic if topic else "random"}"""
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers=headers,
-        json={
-            "model": "meta-llama/llama-3-70b-instruct",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.7
-        }
-    )
+Only include the JSON. The question must be relevant to PMP exam content. Topic: {topic if topic else "random"}
+""".strip()
 
-    result = response.json()
-    text = result['choices'][0]['message']['content']
-    parsed = extract_question_data(text)
-
-    if parsed:
-        st.success("Question Generated:")
-        st.markdown(f"**{parsed['question']}**")
-
-        selected = st.radio("Choose your answer:", list(parsed['choices'].items()), format_func=lambda x: f"{x[0]}. {x[1]}")
-        if selected:
-            if selected[0] == parsed['correct']:
-                st.success(f"✅ Correct! {parsed['explanation']}")
-            else:
-                st.error(f"❌ Incorrect. Correct answer is {parsed['correct']}.")
-                st.info(f"Explanation: {parsed['explanation']}")
-    else:
+def parse_question(response_text):
+    try:
+        # Extract only the JSON block if surrounded by code blocks
+        start = response_text.find('{')
+        end = response_text.rfind('}') + 1
+        json_str = response_text[start:end]
+        return json.loads(json_str)
+    except Exception as e:
         st.error("Sorry, something went wrong parsing the question.")
+        st.caption(f"Error: {e}")
+        return None
+
+if generate:
+    headers = {
+        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"
+    }
+
+    payload = {
+        "model": "llama3-8b-8192",
+        "messages": [
+            {"role": "user", "content": generate_prompt(topic)}
+        ]
+    }
+
+    with st.spinner("Generating your question..."):
+        res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+        if res.status_code == 200:
+            response_text = res.json()["choices"][0]["message"]["content"]
+            question_data = parse_question(response_text)
+        else:
+            st.error("Failed to get a response from Groq API.")
+            st.caption(res.text)
+
+if question_data:
+    st.subheader(question_data["question"])
+    selected_answer = st.radio("Choose your answer:", list(question_data["choices"].items()), format_func=lambda x: f"{x[0]}. {x[1]}")
+
+    if selected_answer:
+        if selected_answer[0] == question_data["correct"]:
+            st.success(f"✅ Correct! The answer is {selected_answer[0]}.")
+        else:
+            st.error(f"❌ Incorrect. Correct answer is {question_data['correct']}.")
+        st.info(f"Explanation: {question_data['explanation']}")
