@@ -1,0 +1,35 @@
+[
+  {
+    "question": "What is the primary purpose of a Work Breakdown Structure (WBS)?",
+    "choices": {
+      "A": "Identify stakeholders",
+      "B": "Break down the project into manageable components",
+      "C": "Control project costs",
+      "D": "Define quality standards"
+    },
+    "correct": "B",
+    "explanation": "The WBS helps in decomposing the overall project into smaller, more manageable components."
+  },
+  {
+    "question": "Which document authorizes the project and gives the project manager authority?",Q
+    "choices": {
+      "A": "Project charter",
+      "B": "Business case",
+      "C": "Statement of work",
+      "D": "Project plan"
+    },
+    "correct": "A",
+    "explanation": "The project charter formally authorizes a project and gives the project manager the authority to apply organizational resources."
+  },
+  {
+    "question": "Which of the following is a key output of the Monitor and Control Project Work process?",
+    "choices": {
+      "A": "Work performance reports",
+      "B": "Project schedule",
+      "C": "Project charter",
+      "D": "Activity list"
+    },
+    "correct": "A",
+    "explanation": "Work performance reports are outputs of the Monitor and Control Project Work process."
+  }
+]
