@@ -4,6 +4,7 @@ import requests
 import json
 import re
 import uuid
+import random
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
@@ -30,6 +31,31 @@ if "score" not in st.session_state:
 if "total" not in st.session_state:
     st.session_state.total = 0
 
+def shuffle_answers(data):
+    choices_dict = data.get("choices", {})
+    correct_letter = data.get("correct")
+
+    # Create a list of (letter, text) tuples
+    original_choices = list(choices_dict.items())
+    correct_text = choices_dict.get(correct_letter)
+
+    # Shuffle
+    random.shuffle(original_choices)
+
+    # Re-map to new A/B/C/D structure
+    new_labels = ["A", "B", "C", "D"]
+    new_choices = {label: choice[1] for label, choice in zip(new_labels, original_choices)}
+
+    # Find new label of the correct answer
+    for new_label, (_, text) in zip(new_labels, original_choices):
+        if text == correct_text:
+            new_correct = new_label
+            break
+
+    data["choices"] = new_choices
+    data["correct"] = new_correct
+    return data
+
 def call_groq(prompt):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -48,11 +74,20 @@ def call_groq(prompt):
 
 def generate_prompt(topic):
     random_id = str(uuid.uuid4())
+    topic_clean = topic.strip() if topic.strip() else "Any PMP-related topic"
+
+    prompt_templates = [
+        f"Generate a difficult PMP exam question related to {topic_clean}, using a unique context or situation.",
+        f"Write a scenario-based PMP multiple-choice question involving {topic_clean}, focusing on application and judgment.",
+        f"Produce a PMP-style question that covers advanced understanding of {topic_clean}, not just definitions.",
+        f"Create a challenging PMP exam question using {topic_clean} in a realistic project management situation."
+    ]
+    topic_prompt = random.choice(prompt_templates)
+
     return f"""
-Generate a PMP multiple choice exam question in JSON format with 4 labeled answer choices.
+{topic_prompt}
 
-The response must be valid JSON and follow this format exactly:
-
+Return only valid JSON, following this format exactly:
 {{
   "question": "Your question here",
   "choices": {{
@@ -65,16 +100,16 @@ The response must be valid JSON and follow this format exactly:
   "explanation": "Explanation of why this is the correct answer"
 }}
 
-Topic: {topic if topic.strip() else "Any PMP-related topic"}
 Session ID: {random_id}
-Only return the JSON. Do not include markdown formatting or text before or after.
+Do not include markdown, comments, or extra text — only return the raw JSON.
 """
 
 def parse_question(raw_text):
     json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
     if not json_match:
         raise ValueError("Failed to extract JSON")
-    return json.loads(json_match.group())
+    data = json.loads(json_match.group())
+    return shuffle_answers(data)
 
 if st.button("Generate New Question"):
     try:
