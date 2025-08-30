@@ -9,6 +9,16 @@ from html import escape  # <-- added
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
+st.markdown("""
+<style>
+  /* Hide Streamlit's top-right menu & status */
+  [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
+  [data-testid="stDecoration"] {display: none;}
+  [data-testid="stStatusWidget"] {display: none;}
+</style>
+""", unsafe_allow_html=True)
+
+
 # (optional but safe) ensure question text never renders italic
 st.markdown("""
 <style>
