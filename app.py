@@ -7,6 +7,14 @@ import uuid
 import random
 
 # --- Page Config ---
+st.set_page_config(
+    page_title="OpSynergy PMP AI Quiz Generator",
+    layout="wide",   # force wide mode so you don’t need the menu toggle
+    initial_sidebar_state="collapsed",
+    menu_items={}
+)
+
+# --- Remove Streamlit Toolbar / Screencast ---
 st.markdown(
     """
     <style>
