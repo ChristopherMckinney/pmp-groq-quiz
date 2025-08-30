@@ -7,11 +7,15 @@ import uuid
 import random
 
 # --- Page Config ---
-st.set_page_config(
-    page_title="OpSynergy PMP AI Quiz Generator",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-    menu_items={}
+st.markdown(
+    """
+    <style>
+    [data-testid="stToolbar"] {visibility: hidden;}
+    [data-testid="stDecoration"] {visibility: hidden;}
+    [data-testid="stStatusWidget"] {visibility: hidden;}
+    </style>
+    """,
+    unsafe_allow_html=True
 )
 
 
