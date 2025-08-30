@@ -5,8 +5,17 @@ import json
 import re
 import uuid
 import random
+from html import escape  # <-- added
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
+
+# (optional but safe) ensure question text never renders italic
+st.markdown("""
+<style>
+  .qtext { font-style: normal; }
+  .qtext em, .qtext i { font-style: normal !important; }
+</style>
+""", unsafe_allow_html=True)
 
 # --- Banner ---
 st.markdown("""
@@ -126,7 +135,10 @@ if st.button("Generate New Question"):
 
 if st.session_state.question_data:
     q = st.session_state.question_data
-    st.markdown(f"### {q['question']}")
+
+    # SAFE render: normalize stray underscores & escape HTML/Markdown
+    clean_q = re.sub(r'(?<=\w)_(?=\w)', ' ', q['question'])
+    st.markdown(f"<h3 class='qtext'>{escape(clean_q)}</h3>", unsafe_allow_html=True)
 
     selected = st.radio(
         "Choose your answer:",
@@ -147,7 +159,6 @@ if st.session_state.question_data:
             st.success("✅ Correct!")
         else:
             st.error(f"❌ Incorrect. Correct answer is {q['correct']}.")
-
         st.info(f"**Explanation:** {q['explanation']}")
         st.markdown(f"**Score:** {st.session_state.score} out of {st.session_state.total} attempts this session")
 
