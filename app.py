@@ -4,9 +4,9 @@ import re
 import requests
 import streamlit as st
 
-# =========================
-# Page Config + Minimal CSS
-# =========================
+# ==============
+# Page setup
+# ==============
 st.set_page_config(
     page_title="OpSynergy PMP AI Quiz Generator",
     layout="wide",
@@ -14,7 +14,7 @@ st.set_page_config(
     menu_items={}
 )
 
-# Hide Streamlit toolbar/screencast
+# Hide Streamlit toolbar / screencast + bump choice font
 st.markdown(
     """
     <style>
@@ -27,9 +27,22 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ============
-# API Settings
-# ============
+# Banner
+st.markdown(
+    """
+    <div style='width:100%; height:70px;
+      background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
+      display:flex; align-items:center; justify-content:center; margin: 8px 0 24px 0;
+      border-radius:12px;'>
+      <h1 style='color:#222; font-size:24px; margin:0;'>OpSynergy PMP AI Quiz Generator</h1>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# ==============
+# API config
+# ==============
 GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 PRIMARY_MODEL = "llama3-70b-8192"
@@ -39,9 +52,9 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-# ============
+# ==============
 # Helpers
-# ============
+# ==============
 def build_prompt(topic: str) -> str:
     return f"""
 Generate one PMP exam-style multiple choice question.
@@ -50,7 +63,7 @@ Write the output as strict JSON ONLY, with this schema:
 {{
   "question": "Question text here",
   "options": ["A. option1", "B. option2", "C. option3", "D. option4"],
-  "answer": "A",
+  "answer": "A",   // just the letter A-D
   "explanation": "Why the correct answer is correct."
 }}
 Make the distractors plausible and the explanation concise and accurate.
@@ -100,7 +113,6 @@ def fetch_question(topic: str):
     prompt = build_prompt(topic)
     resp = call_groq(PRIMARY_MODEL, prompt)
     if resp.status_code != 200:
-        # fall back once
         resp = call_groq(FALLBACK_MODEL, prompt)
     if resp.status_code != 200:
         st.error(f"Groq error {resp.status_code}: {resp.text[:300]}")
@@ -127,106 +139,81 @@ def fetch_question(topic: str):
         return None
     return {"question": q, "options": options, "answer": ans_letter, "explanation": expl}
 
-# =================
-# Session State Init
-# =================
+# =========================
+# Session state (single-btn)
+# =========================
 if "question" not in st.session_state:
-    st.session_state.question = None  # dict with question/choices/answer/expl
+    st.session_state.question = None
 if "answered" not in st.session_state:
     st.session_state.answered = False
-if "selected" not in st.session_state:
-    st.session_state.selected = None  # "A. ...", "B. ...", etc.
 if "correct_count" not in st.session_state:
     st.session_state.correct_count = 0
 if "attempts" not in st.session_state:
     st.session_state.attempts = 0
 
-# ======
-# Banner
-# ======
-st.markdown(
-    """
-    <div style='width:100%; height:70px;
-      background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
-      display:flex; align-items:center; justify-content:center; margin: 8px 0 24px 0;
-      border-radius:12px;'>
-      <h1 style='color:#222; font-size:24px; margin:0;'>OpSynergy PMP AI Quiz Generator</h1>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# When we fetch a new question, we clear the radio by removing its key.
+def reset_selection():
+    if "choice" in st.session_state:
+        del st.session_state["choice"]
 
-# =========
-# Controls
-# =========
+# Instant grading when a choice is clicked (only once per question)
+def on_select():
+    if not st.session_state.question or st.session_state.answered:
+        return
+    picked = st.session_state.get("choice")
+    if not picked:
+        return
+    st.session_state.attempts += 1
+    picked_letter = picked.split(".", 1)[0].strip()
+    if picked_letter == st.session_state.question["answer"]:
+        st.session_state.correct_count += 1
+    st.session_state.answered = True
+
+# =================
+# Controls + UI
+# =================
 topic = st.text_input("Enter a PMP topic or leave blank for a random question:", "")
 
-colA, colB, colC = st.columns([1,1,1])
-with colA:
-    if st.button("Generate New Question"):
-        st.session_state.question = fetch_question(topic)
-        st.session_state.answered = False
-        st.session_state.selected = None
+# Single button to fetch a fresh question
+if st.button("Generate New Question"):
+    st.session_state.question = fetch_question(topic)
+    st.session_state.answered = False
+    reset_selection()
 
-with colB:
-    if st.button("Submit Answer", disabled=not (st.session_state.question and st.session_state.selected)):
-        if st.session_state.question and st.session_state.selected:
-            picked = st.session_state.selected.split(".", 1)[0].strip()  # "A. ..." -> "A"
-            st.session_state.attempts += 1
-            if picked == st.session_state.question["answer"]:
-                st.session_state.correct_count += 1
-            st.session_state.answered = True
-
-with colC:
-    if st.button("Next Question", disabled=not st.session_state.answered):
-        st.session_state.question = fetch_question(topic)
-        st.session_state.answered = False
-        st.session_state.selected = None
-
-# =========
-# Question
-# =========
+# Show current question (if any)
 if st.session_state.question:
-    # Bigger question font (20px)
     st.markdown(
         f"<p style='font-size:20px; line-height:1.4;'>{st.session_state.question['question']}</p>",
         unsafe_allow_html=True
     )
 
-    # Radio for choices; keep selection in state across reruns
-    st.session_state.selected = st.radio(
+    # Radio with immediate feedback
+    st.radio(
         "Choose your answer:",
         st.session_state.question["options"],
         index=None,
-        key="choice_radio"
+        key="choice",
+        disabled=st.session_state.answered,
+        on_change=on_select
     )
 
-    # Feedback after submission
+    # Feedback & explanation (after a choice is made)
     if st.session_state.answered:
-        picked_letter = st.session_state.selected.split(".", 1)[0].strip() if st.session_state.selected else None
+        picked = st.session_state.get("choice")
+        picked_letter = picked.split(".", 1)[0].strip() if picked else None
         if picked_letter == st.session_state.question["answer"]:
             st.success("Correct.")
         else:
             st.error(f"Incorrect. Correct answer: {st.session_state.question['answer']}")
         st.markdown(f"**Explanation:** {st.session_state.question['explanation']}")
 
-# =======
 # Score
-# =======
 st.markdown("---")
 st.write(f"Score this session: **{st.session_state.correct_count} / {st.session_state.attempts}**")
 
-# ==========
 # Disclaimer
-# ==========
 st.markdown(
     """
     <hr>
     <p style='font-size:12px; text-align:center;'>
-      All questions are generated by AI and should be reviewed for accuracy.
-      OpSynergy is not responsible for the validity or appropriateness of any content generated by this simulator.
-      This tool is not affiliated with or endorsed by PMI®.
-    </p>
-    """,
-    unsafe_allow_html=True
-)
+      All questions are generated by AI and should be reviewed for accur
