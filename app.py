@@ -26,7 +26,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
 # --- Banner ---
 st.markdown("""
     <div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
