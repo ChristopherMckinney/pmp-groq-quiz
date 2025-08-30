@@ -11,12 +11,9 @@ st.set_page_config(
     page_title="OpSynergy PMP AI Quiz Generator",
     layout="centered",
     initial_sidebar_state="collapsed",
-    menu_items={
-        "Get help": None,
-        "Report a Bug": None,
-        "About": None
-    }
+    menu_items={}
 )
+
 
 # --- Banner ---
 st.markdown("""
