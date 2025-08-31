@@ -6,6 +6,30 @@ import re
 import uuid
 import random
 from html import escape  # <-- added
+import time  # <-- add this with your imports at the top
+
+def call_groq(prompt):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "model": "llama3-70b-8192",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.9
+    }
+
+    start = time.time()
+    response = requests.post(url, headers=headers, json=body)
+    elapsed = time.time() - start
+
+    # This goes to Render’s Logs tab
+    print(f"[PERF] Request took {elapsed:.2f}s")
+
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
