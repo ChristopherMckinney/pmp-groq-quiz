@@ -14,15 +14,6 @@ from html import escape
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
 # Hide Streamlit chrome
-st.markdown("""
-<style>
-  [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
-  [data-testid="stDecoration"] {display: none;}
-  [data-testid="stStatusWidget"] {display: none;}
-  .qtext { font-style: normal; }
-  .qtext em, .qtext i { font-style: normal !important; }
-</style>
-""", unsafe_allow_html=True)
 
 # -----------------------------
 # GROQ call
