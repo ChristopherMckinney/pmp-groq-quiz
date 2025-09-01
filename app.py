@@ -34,13 +34,14 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.markdown("Enter a PMP topic or leave blank for a random question:")
-
 # ✅ Streamlit label-policy fix (do NOT use empty label)
 topic = st.text_input(
-    "Enter a PMP topic (or leave blank for random):",
+    "",
     value="",
-    label_visibility="visible"
+    placeholder="Type a PMP topic (or leave blank for random)",
+    label_visibility="collapsed"
+)
+
 )
 
 # ---- Session state ----
