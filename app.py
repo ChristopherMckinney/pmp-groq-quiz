@@ -18,7 +18,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # (optional but safe) ensure question text never renders italic
 st.markdown("""
 <style>
@@ -37,8 +36,14 @@ st.markdown("""
 
 st.markdown("Enter a PMP topic or leave blank for a random question:")
 
-topic = st.text_input("")
+# ✅ Streamlit label-policy fix (do NOT use empty label)
+topic = st.text_input(
+    "Enter a PMP topic (or leave blank for random):",
+    value="",
+    label_visibility="visible"
+)
 
+# ---- Session state ----
 if "question_data" not in st.session_state:
     st.session_state.question_data = None
 if "show_result" not in st.session_state:
@@ -66,13 +71,14 @@ def shuffle_answers(data):
     new_choices = {label: choice[1] for label, choice in zip(new_labels, original_choices)}
 
     # Find new label of the correct answer
+    new_correct = None
     for new_label, (_, text) in zip(new_labels, original_choices):
         if text == correct_text:
             new_correct = new_label
             break
 
     data["choices"] = new_choices
-    data["correct"] = new_correct
+    data["correct"] = new_correct or "A"
     return data
 
 def call_groq(prompt):
@@ -82,14 +88,17 @@ def call_groq(prompt):
         "Content-Type": "application/json"
     }
     body = {
-        "model": "llama3-70b-8192",
+        # ✅ use env var with safe default (your Render env should be: llama-3.1-70b-versatile)
+        "model": os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile"),
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.9
     }
 
-    response = requests.post(url, headers=headers, json=body)
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
+    resp = requests.post(url, headers=headers, json=body)
+    # Show real server message if it fails (e.g., 400 model_decommissioned)
+    if resp.status_code != 200:
+        raise RuntimeError(f"{resp.status_code} {resp.reason} | {resp.text}")
+    return resp.json()["choices"][0]["message"]["content"]
 
 def generate_prompt(topic):
     random_id = str(uuid.uuid4())
@@ -124,7 +133,9 @@ Do not include markdown, comments, or extra text — only return the raw JSON.
 """
 
 def parse_question(raw_text):
-    json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+    # Make parsing a touch sturdier (strip code fences if present)
+    text = re.sub(r"```(?:json)?|```", "", raw_text).strip()
+    json_match = re.search(r"\{.*\}", text, re.DOTALL)
     if not json_match:
         raise ValueError("Failed to extract JSON")
     data = json.loads(json_match.group())
@@ -141,7 +152,8 @@ if st.button("Generate New Question"):
             st.session_state.selected_answer = None
     except Exception as e:
         st.error("Sorry, something went wrong parsing the question.")
-        st.stop()
+        # 👇 surface the real reason (e.g., 400 model_decommissioned)
+        st.caption(f"{e}")
 
 if st.session_state.question_data:
     q = st.session_state.question_data
