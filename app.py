@@ -14,7 +14,8 @@ from html import escape
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
 # Hide Streamlit chrome and normalize italics
-st.markdown("""
+st.markdown(
+    """
 <style>
   [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
   [data-testid="stDecoration"] {display: none;}
@@ -22,7 +23,9 @@ st.markdown("""
   .qtext { font-style: normal; }
   .qtext em, .qtext i { font-style: normal !important; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # =========================
 # Groq API call
@@ -37,14 +40,10 @@ def call_groq(prompt: str) -> str:
         "Authorization": f"Bearer {os.getenv('GROQ_API_KEY') or ''}",
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "ops-pmp-quiz/1.0"
+        "User-Agent": "ops-pmp-quiz/1.0",
     }
     model = os.getenv("GROQ_MODEL", "llama3-70b-8192")
-    body = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.9
-    }
+    body = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.9}
 
     start = time.time()
     resp = requests.post(url, headers=headers, json=body)
@@ -152,24 +151,23 @@ def generate_prompt(topic: str) -> str:
         f"Generate a difficult PMP exam question related to {topic_clean}, using a unique project context.",
         f"Write a scenario-based PMP multiple-choice question involving {topic_clean}, focusing on judgment.",
         f"Produce a PMP-style question that tests applied understanding of {topic_clean}.",
-        f"Create a challenging PMP question using {topic_clean} in a realistic project situation."
+        f"Create a challenging PMP question using {topic_clean} in a realistic project situation.",
     ]
     topic_prompt = random.choice(topic_templates)
 
     # Strict JSON contract. No symbols such as plus or slash; spell them out.
-    return f"""
-{topic_prompt}
-
-Output ONLY strict JSON with this schema:
-{{
-  "question": "string",
-  "choices": {{"A":"string","B":"string","C":"string","D":"string"}},
-  "correct": "A|B|C|D",
-  "explanation": "string"
-}}
-No prose, no markdown, no code fences, no commentary. Write out words for symbols.
-SessionID: {random_id}
-"""
+    return (
+        f"{topic_prompt}\n\n"
+        "Output ONLY strict JSON with this schema:\n"
+        "{\n"
+        '  "question": "string",\n'
+        '  "choices": {"A":"string","B":"string","C":"string","D":"string"},\n'
+        '  "correct": "A|B|C|D",\n'
+        '  "explanation": "string"\n'
+        "}\n"
+        "No prose, no markdown, no code fences, no commentary. Write out words for symbols.\n"
+        f"SessionID: {random_id}\n"
+    )
 
 # =========================
 # Session state defaults
@@ -188,17 +186,20 @@ for key, default in [
 # UI
 # =========================
 # Banner
-st.markdown("""
-    <div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
-    display:flex; align-items:center; justify-content:center; margin-bottom:30px; border-radius:10px;'>
-        <h1 style='color:#222; font-size:2rem; font-weight:700;'>OpSynergy PMP AI Quiz Generator</h1>
-    </div>
-""", unsafe_allow_html=True)
+st.markdown(
+    """
+<div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
+display:flex; align-items:center; justify-content:center; margin-bottom:30px; border-radius:10px;'>
+  <h1 style='color:#222; font-size:2rem; font-weight:700;'>OpSynergy PMP AI Quiz Generator</h1>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
 topic = st.text_input(
     "Enter a PMP topic or leave blank for a random question:",
     value="",
-    label_visibility="visible"
+    label_visibility="visible",
 )
 
 show_raw = st.checkbox("Show raw model output (debug)")
@@ -212,7 +213,8 @@ with st.expander("API health (debug)"):
         try:
             r = requests.get(
                 "https://api.groq.com/openai/v1/models",
-                headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY') or ''}"}
+                headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY') or ''}"},
+                timeout=15,
             )
             st.write(f"Status: {r.status_code}")
             st.code(r.text)
@@ -237,11 +239,11 @@ if st.button("Generate New Question"):
         st.caption(f"Parser hint: {e}")
         try:
             with open("/mnt/data/last_model_output.txt", "w") as f:
-                f.write(raw if 'raw' in locals() else "<no raw output>")
+                f.write(raw if "raw" in locals() else "<no raw output>")
             st.download_button(
                 "Download last model output",
-                data=raw if 'raw' in locals() else "No raw output captured.",
-                file_name="last_model_output.txt"
+                data=(raw if "raw" in locals() else "No raw output captured."),
+                file_name="last_model_output.txt",
             )
         except Exception:
             pass
@@ -251,7 +253,7 @@ if st.button("Generate New Question"):
 if st.session_state.question_data:
     q = st.session_state.question_data
 
-    clean_q = re.sub(r'(?<=\w)_(?=\w)', ' ', q["question"])
+    clean_q = re.sub(r"(?<=\w)_(?=\w)", " ", q["question"])
     st.markdown(f"<h3 class='qtext'>{escape(clean_q)}</h3>", unsafe_allow_html=True)
 
     letters = ["A", "B", "C", "D"]
@@ -261,7 +263,7 @@ if st.session_state.question_data:
         options=choice_keys,
         format_func=lambda k: f"{k}. {q['choices'][k]}",
         index=None,
-        key="selected_answer"
+        key="selected_answer",
     )
 
     if selected and not st.session_state.show_result:
@@ -278,7 +280,10 @@ if st.session_state.question_data:
         st.info(f"Explanation: {q['explanation']}")
         st.markdown(f"Score: {st.session_state.score} out of {st.session_state.total} this session")
 
-# Footer
-st.markdown("---")
+# Footer (single, closed call to avoid paste errors)
 st.markdown(
     "<small>All questions are generated by AI and should be reviewed for accuracy. "
+    "OpSynergy is not responsible for the validity or appropriateness of any content generated by this simulator. "
+    "This tool is not affiliated with or endorsed by PMI.</small>",
+    unsafe_allow_html=True,
+)
