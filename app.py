@@ -8,24 +8,40 @@ import requests
 import streamlit as st
 from html import escape
 
-# -----------------------------
-# Config
-# -----------------------------
+# =========================
+# Streamlit page config
+# =========================
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
-# Hide Streamlit chrome
+# Hide Streamlit chrome and normalize italics
+st.markdown("""
+<style>
+  [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
+  [data-testid="stDecoration"] {display: none;}
+  [data-testid="stStatusWidget"] {display: none;}
+  .qtext { font-style: normal; }
+  .qtext em, .qtext i { font-style: normal !important; }
+</style>
+""", unsafe_allow_html=True)
 
-# -----------------------------
-# GROQ call
-# -----------------------------
+# =========================
+# Groq API call
+# =========================
 def call_groq(prompt: str) -> str:
+    """
+    Calls Groq Chat Completions and returns message text.
+    Raises RuntimeError with server-provided error body on non-200.
+    """
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY') or ''}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "ops-pmp-quiz/1.0"
     }
+    model = os.getenv("GROQ_MODEL", "llama3-70b-8192")
     body = {
-        "model": "llama3-70b-8192",
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.9
     }
@@ -34,25 +50,31 @@ def call_groq(prompt: str) -> str:
     resp = requests.post(url, headers=headers, json=body)
     elapsed = time.time() - start
     print(f"[PERF] Request took {elapsed:.2f}s")
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
 
-# -----------------------------
+    if resp.status_code != 200:
+        # Surface server message so we can see missing key, bad model name, quota, etc.
+        raise RuntimeError(f"{resp.status_code} {resp.reason} | {resp.text}")
+
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
+
+# =========================
 # Robust JSON parsing
-# -----------------------------
+# =========================
 def extract_json_block(text: str) -> str:
-    # Strip code fences if present
+    # Remove code fences if present
     text = re.sub(r"```(?:json)?|```", "", text).strip()
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if not m:
         m = re.search(r"\[.*\]", text, re.DOTALL)
     if not m:
-        raise ValueError("No JSON object/array found in model output.")
+        raise ValueError("No JSON object or array found in model output.")
     return m.group(0)
 
 def sanitize_json(text: str) -> str:
-    # Normalize quotes and remove trailing commas
+    # Normalize quotes
     text = text.replace("“", '"').replace("”", '"').replace("’", "'")
+    # Remove trailing commas before } or ]
     text = re.sub(r",\s*([}\]])", r"\1", text)
     # Convert single-quoted JSON-like blocks if needed
     if text.strip().startswith("{") and "'" in text and '"' not in text:
@@ -68,28 +90,26 @@ def parse_question_json(raw: str) -> dict:
     if "answer" in data and "correct" not in data:
         data["correct"] = data["answer"]
 
-    # Required keys (your schema)
+    # Required keys
     for k in ["question", "choices", "correct", "explanation"]:
         if k not in data:
             raise ValueError(f"Missing key: {k}")
 
-    # Normalize choices to dict with A-D
+    # Normalize choices to dict A-D
     choices = data["choices"]
     if isinstance(choices, list):
-        # Convert list -> dict A-D
         letters = ["A", "B", "C", "D"]
         choices = {letters[i]: choices[i] for i in range(min(4, len(choices)))}
     elif isinstance(choices, dict):
-        # Keep only A-D in order if extras exist
         ordered = {}
         for k in ["A", "B", "C", "D"]:
             if k in choices:
                 ordered[k] = choices[k]
         choices = ordered
     else:
-        raise ValueError("choices must be a dict or list")
+        raise ValueError("choices must be a dict or a list")
 
-    # Normalize correct to letter A-D
+    # Normalize correct to a letter
     correct = data["correct"]
     if isinstance(correct, int):
         idx_map = {0: "A", 1: "B", 2: "C", 3: "D"}
@@ -104,27 +124,27 @@ def parse_question_json(raw: str) -> dict:
     return data
 
 def shuffle_answers(data: dict) -> dict:
-    choices = list(data["choices"].items())  # [(A, text), ...]
+    """Shuffle choices but keep track of the correct answer."""
+    original_items = list(data["choices"].items())  # [(A, text), ...]
     correct_text = data["choices"][data["correct"]]
-    random.shuffle(choices)
+    random.shuffle(original_items)
 
     new_labels = ["A", "B", "C", "D"]
-    new_choices = {lbl: txt for lbl, (_, txt) in zip(new_labels, choices)}
+    new_choices = {lbl: txt for lbl, (_, txt) in zip(new_labels, original_items)}
 
-    # Find where the correct text landed
     new_correct = None
-    for lbl, (_, txt) in zip(new_labels, choices):
+    for lbl, (_, txt) in zip(new_labels, original_items):
         if txt == correct_text:
             new_correct = lbl
             break
 
     data["choices"] = new_choices
-    data["correct"] = new_correct if new_correct else "A"
+    data["correct"] = new_correct or "A"
     return data
 
-# -----------------------------
-# Prompt
-# -----------------------------
+# =========================
+# Prompt builder
+# =========================
 def generate_prompt(topic: str) -> str:
     random_id = str(uuid.uuid4())
     topic_clean = topic.strip() if topic and topic.strip() else "Any PMP-related topic"
@@ -136,7 +156,7 @@ def generate_prompt(topic: str) -> str:
     ]
     topic_prompt = random.choice(topic_templates)
 
-    # Strict JSON contract
+    # Strict JSON contract. No symbols such as plus or slash; spell them out.
     return f"""
 {topic_prompt}
 
@@ -147,13 +167,13 @@ Output ONLY strict JSON with this schema:
   "correct": "A|B|C|D",
   "explanation": "string"
 }}
-No prose, no markdown, no code fences, no commentary. Write out words for symbols (for example, use 'plus' instead of '+').
+No prose, no markdown, no code fences, no commentary. Write out words for symbols.
 SessionID: {random_id}
 """
 
-# -----------------------------
-# Session state
-# -----------------------------
+# =========================
+# Session state defaults
+# =========================
 for key, default in [
     ("question_data", None),
     ("show_result", False),
@@ -164,9 +184,9 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-# -----------------------------
+# =========================
 # UI
-# -----------------------------
+# =========================
 # Banner
 st.markdown("""
     <div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
@@ -183,9 +203,23 @@ topic = st.text_input(
 
 show_raw = st.checkbox("Show raw model output (debug)")
 
-# -----------------------------
+# API health expander
+with st.expander("API health (debug)"):
+    key_present = bool(os.getenv("GROQ_API_KEY"))
+    st.write(f"GROQ_API_KEY set: {'yes' if key_present else 'no'}")
+    st.write(f"Current model: {os.getenv('GROQ_MODEL', 'llama3-70b-8192')}")
+    if st.button("Test Groq /models endpoint"):
+        try:
+            r = requests.get(
+                "https://api.groq.com/openai/v1/models",
+                headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY') or ''}"}
+            )
+            st.write(f"Status: {r.status_code}")
+            st.code(r.text)
+        except Exception as e:
+            st.error(str(e))
+
 # Generate
-# -----------------------------
 if st.button("Generate New Question"):
     try:
         with st.spinner("Generating..."):
@@ -201,7 +235,6 @@ if st.button("Generate New Question"):
     except Exception as e:
         st.error("Sorry, something went wrong parsing the question.")
         st.caption(f"Parser hint: {e}")
-        # save the raw payload if available
         try:
             with open("/mnt/data/last_model_output.txt", "w") as f:
                 f.write(raw if 'raw' in locals() else "<no raw output>")
@@ -214,16 +247,13 @@ if st.button("Generate New Question"):
             pass
         st.stop()
 
-# -----------------------------
 # Render question / choices
-# -----------------------------
 if st.session_state.question_data:
     q = st.session_state.question_data
 
     clean_q = re.sub(r'(?<=\w)_(?=\w)', ' ', q["question"])
     st.markdown(f"<h3 class='qtext'>{escape(clean_q)}</h3>", unsafe_allow_html=True)
 
-    # Radio expects a list of keys, we show "A. text" via format_func
     letters = ["A", "B", "C", "D"]
     choice_keys = [k for k in letters if k in q["choices"]]
     selected = st.radio(
@@ -234,7 +264,6 @@ if st.session_state.question_data:
         key="selected_answer"
     )
 
-    # Handle selection & scoring once
     if selected and not st.session_state.show_result:
         st.session_state.show_result = True
         st.session_state.total += 1
@@ -249,13 +278,7 @@ if st.session_state.question_data:
         st.info(f"Explanation: {q['explanation']}")
         st.markdown(f"Score: {st.session_state.score} out of {st.session_state.total} this session")
 
-# -----------------------------
 # Footer
-# -----------------------------
 st.markdown("---")
 st.markdown(
     "<small>All questions are generated by AI and should be reviewed for accuracy. "
-    "OpSynergy is not responsible for the validity or appropriateness of any content generated by this simulator. "
-    "This tool is not affiliated with or endorsed by PMI.</small>",
-    unsafe_allow_html=True
-)
