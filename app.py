@@ -42,8 +42,6 @@ topic = st.text_input(
     label_visibility="collapsed"
 )
 
-)
-
 # ---- Session state ----
 if "question_data" not in st.session_state:
     st.session_state.question_data = None
