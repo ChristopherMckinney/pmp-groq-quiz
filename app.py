@@ -88,8 +88,8 @@ def call_groq(prompt):
         "Content-Type": "application/json"
     }
     body = {
-        # ✅ use env var with safe default (your Render env should be: llama-3.1-70b-versatile)
-        "model": os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile"),
+        # ✅ use env var with safe default (your Render env should be: llama-3.3-70b-versatile)
+        "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.9
     }
