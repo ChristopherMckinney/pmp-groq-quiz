@@ -8,7 +8,7 @@ import random
 import time
 import csv
 import io
-from html import escape
+import html  # for HTML escaping
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
@@ -24,7 +24,30 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Banner ---
+# --- Helpers (safe rendering, sanitizing) -------------------------------------
+def safe_inline(text: str) -> str:
+    """
+    Render text safely without triggering Markdown or LaTeX:
+    - Replace underscores/asterisks between word chars to avoid emphasis.
+    - Escape $ to prevent MathJax.
+    - HTML-escape everything before injecting.
+    """
+    s = str(text)
+    s = re.sub(r'(?<=\w)_(?=\w)', ' ', s)     # a_b -> a b
+    s = re.sub(r'(?<=\w)\*(?=\w)', ' ', s)    # a*b -> a b
+    s = s.replace('$', '&#36;')               # prevent math mode
+    return html.escape(s)
+
+def sanitize_explanation(raw_text: str) -> str:
+    """Remove any stray 'correct answer is X' claims and tidy whitespace."""
+    if not isinstance(raw_text, str):
+        raw_text = str(raw_text)
+    txt = re.sub(r'(?i)\bthe\s+correct\s+answer\s+is\s+[A-D]\b[:.\s-]*', '', raw_text)
+    txt = re.sub(r'(?i)\b(answer|option)\s+[A-D]\s+(is|was)\s+correct[:.\s-]*', '', txt)
+    txt = re.sub(r'\s+', ' ', txt).strip()
+    return txt
+
+# --- Banner -------------------------------------------------------------------
 st.markdown("""
     <div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
     display:flex; align-items:center; justify-content:center; margin-bottom:30px; border-radius:10px;'>
@@ -32,14 +55,14 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Inputs row
+# Inputs row (aligned labels)
 col1, col2 = st.columns([3, 2])
 with col1:
     topic = st.text_input(
-        "",
+        "Topic",
         value="",
         placeholder="Type a PMP topic (or leave blank for random)",
-        label_visibility="collapsed"
+        label_visibility="visible"
     )
 with col2:
     difficulty = st.selectbox(
@@ -48,7 +71,7 @@ with col2:
         index=1
     )
 
-# ---- Session state ----
+# ---- Session state -----------------------------------------------------------
 ss = st.session_state
 if "question_data" not in ss:
     ss.question_data = None
@@ -66,35 +89,33 @@ if "history" not in ss:
     # each item: {question, choices, correct, chosen, is_correct, explanation, rationales, time_sec, topic, difficulty}
     ss.history = []
 
-def shuffle_answers(data):
-    choices_dict = data.get("choices", {})
+# --- Core functions -----------------------------------------------------------
+def shuffle_answers(data: dict) -> dict:
+    """
+    Shuffle choices while keeping track of the correct answer and remapping rationales.
+    """
+    choices = data.get("choices", {}) or {}
     correct_letter = data.get("correct")
+    rationales = data.get("rationales", {}) or {}
 
-    original_choices = list(choices_dict.items())  # [(A, text), ...]
-    correct_text = choices_dict.get(correct_letter)
-    random.shuffle(original_choices)
+    original_items = list(choices.items())  # [('A','...'), ('B','...'), ...]
+    random.shuffle(original_items)
 
     new_labels = ["A", "B", "C", "D"]
-    new_choices = {label: choice[1] for label, choice in zip(new_labels, original_choices)}
+    new_choices = {}
+    new_rationales = {}
+    new_correct_letter = "A"  # fallback
 
-    # remap rationales to the new labels if present
-    ration = data.get("rationales", {}) or {}
-    original_rationales = [(k, ration.get(k, "")) for k, _ in choices_dict.items()]
-    # Align rationales with shuffled order
-    shuffled_rationales_texts = [r for (_, r) in original_rationales]
-    # Build mapping letter->text for shuffled order
-    new_rationales = {label: text for label, text in zip(new_labels, [r for (_, r) in zip(original_choices, shuffled_rationales_texts)])}
-
-    # Find new label of the correct answer by matching text
-    new_correct = None
-    for new_label, (_, text) in zip(new_labels, original_choices):
-        if text == correct_text:
-            new_correct = new_label
-            break
+    for i, (old_label, text) in enumerate(original_items):
+        nl = new_labels[i]
+        new_choices[nl] = text
+        new_rationales[nl] = rationales.get(old_label, "")
+        if old_label == correct_letter:
+            new_correct_letter = nl
 
     data["choices"] = new_choices
     data["rationales"] = new_rationales
-    data["correct"] = new_correct or "A"
+    data["correct"] = new_correct_letter
     return data
 
 def _post_groq(body):
@@ -193,20 +214,10 @@ def parse_question(raw_text):
     if not json_match:
         raise ValueError("Failed to extract JSON")
     data = json.loads(json_match.group())
-    # Ensure rationales exists
     data.setdefault("rationales", {"A": "", "B": "", "C": "", "D": ""})
     return shuffle_answers(data)
 
-# Remove any stray "correct answer is X" claims in explanation or rationales
-def sanitize_explanation(raw_text: str) -> str:
-    if not isinstance(raw_text, str):
-        raw_text = str(raw_text)
-    txt = re.sub(r'(?i)\bthe\s+correct\s+answer\s+is\s+[A-D]\b[:.\s-]*', '', raw_text)
-    txt = re.sub(r'(?i)\b(answer|option)\s+[A-D]\s+(is|was)\s+correct[:.\s-]*', '', txt)
-    txt = re.sub(r'\s+', ' ', txt).strip()
-    return txt
-
-# Generate button
+# --- UI actions ---------------------------------------------------------------
 if st.button("Generate New Question"):
     try:
         with st.spinner("Generating..."):
@@ -221,13 +232,16 @@ if st.button("Generate New Question"):
         st.error("Sorry, something went wrong parsing the question.")
         st.caption(f"{e}")
 
-# Render question
+# --- Render question ----------------------------------------------------------
 if ss.question_data:
     q = ss.question_data
 
-    clean_q = re.sub(r'(?<=\w)_(?=\w)', ' ', q['question'])
-    st.markdown(f"<h3 class='qtext'>{escape(clean_q)}</h3>", unsafe_allow_html=True)
-    st.markdown(f"<div class='muted'>Topic: {escape(topic.strip() or 'Random')} • Difficulty: {difficulty}</div>", unsafe_allow_html=True)
+    # Question & meta (safe, non-Markdown)
+    st.markdown(f"<h3 class='qtext'>{safe_inline(q['question'])}</h3>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='muted'>Topic: {safe_inline(topic.strip() or 'Random')} • Difficulty: {safe_inline(difficulty)}</div>",
+        unsafe_allow_html=True
+    )
 
     selected = st.radio(
         "Choose your answer:",
@@ -237,7 +251,7 @@ if ss.question_data:
         key="selected_answer"
     )
 
-    # When an answer is selected the first time, finalize
+    # First selection: finalize grading and log
     if selected and not ss.show_result:
         ss.show_result = True
         ss.total += 1
@@ -245,12 +259,10 @@ if ss.question_data:
         if is_correct:
             ss.score += 1
 
-        # timing
         elapsed = None
         if ss.question_start:
             elapsed = round(time.time() - ss.question_start, 1)
 
-        # save history row
         ss.history.append({
             "question": q["question"],
             "choices": q["choices"],
@@ -264,38 +276,38 @@ if ss.question_data:
             "difficulty": difficulty
         })
 
-    # Show result + explanations
+    # Result + explanations
     if ss.show_result and selected:
         if selected[0] == q["correct"]:
             st.success("Correct.")
         else:
             st.error(f"Incorrect. Correct answer is {q['correct']}.")
 
-        # Main reasoning (letter-free)
-        st.info(f"Explanation: {sanitize_explanation(q.get('explanation', ''))}")
+        # Main explanation (sanitized and safe)
+        expl = safe_inline(sanitize_explanation(q.get("explanation", "")))
+        st.info(f"Explanation: {expl}")
 
-        # Elimination block
+        # Elimination (ONLY incorrect options)
         with st.expander("Why the other options are not the best choice"):
             ration = q.get("rationales", {}) or {}
             correct_letter = q["correct"]
+            items = []
             for letter in ["A", "B", "C", "D"]:
                 if letter == correct_letter:
-                    # Show the correct option’s brief justification too
-                    st.markdown(f"- **{letter}. {q['choices'][letter]}** — {sanitize_explanation(ration.get(letter, ''))}")
-                else:
-                    st.markdown(f"- {letter}. {q['choices'][letter]} — {sanitize_explanation(ration.get(letter, ''))}")
+                    continue
+                items.append(f"<li>{letter}. {safe_inline(q['choices'][letter])} — {safe_inline(sanitize_explanation(ration.get(letter, '')))}</li>")
+            st.markdown(f"<ul>{''.join(items)}</ul>", unsafe_allow_html=True)
 
-        # Running score
-        st.markdown(f"Score: {ss.score} out of {ss.total} this session")
+        st.markdown(f"<div>Score: {ss.score} out of {ss.total} this session</div>", unsafe_allow_html=True)
 
-# --- Session Summary / Export ---
+# --- Session Summary / Export -------------------------------------------------
 st.markdown("---")
 colL, colR = st.columns([2, 3])
 with colL:
     if st.button("End Session & Review"):
         ss.review_open = True
 with colR:
-    st.markdown(f"<div class='muted'>Tip: End session to review wrong answers and download your results.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='muted'>Tip: End session to review wrong answers and download your results.</div>", unsafe_allow_html=True)
 
 if ss.get("review_open") and ss.history:
     total = len(ss.history)
@@ -307,21 +319,31 @@ if ss.get("review_open") and ss.history:
     st.markdown(f"- Correct: {correct}  •  Accuracy: {round(100*correct/total,1)}%")
     st.markdown(f"- Average response time: {avg_time} seconds")
 
-    # List incorrect answers with explanations
     wrong = [h for h in ss.history if not h["is_correct"]]
     if wrong:
         st.markdown("#### Review your incorrect answers")
         for i, h in enumerate(wrong, start=1):
-            st.markdown(f"**{i}. {h['question']}**")
+            st.markdown(f"<strong>{i}. {safe_inline(h['question'])}</strong>", unsafe_allow_html=True)
+
+            # choices list (safe HTML)
+            lis = []
             for L in ["A", "B", "C", "D"]:
-                st.markdown(f"- {L}. {h['choices'][L]}")
-            st.markdown(f"- Your answer: {h['chosen']}")
-            st.markdown(f"- Correct answer: {h['correct']}")
-            st.info(f"Explanation: {sanitize_explanation(h['explanation'])}")
-            with st.expander("Why each option was or wasn't correct"):
+                lis.append(f"<li>{L}. {safe_inline(h['choices'][L])}</li>")
+            st.markdown(f"<ul>{''.join(lis)}</ul>", unsafe_allow_html=True)
+
+            st.markdown(f"<div>Your answer: <strong>{safe_inline(h['chosen'])}</strong></div>", unsafe_allow_html=True)
+            st.markdown(f"<div>Correct answer: <strong>{safe_inline(h['correct'])}</strong></div>", unsafe_allow_html=True)
+
+            st.info(f"Explanation: {safe_inline(sanitize_explanation(h['explanation']))}")
+
+            with st.expander("Why each incorrect option was not the best"):
                 r = h.get("rationales", {}) or {}
+                items = []
                 for L in ["A", "B", "C", "D"]:
-                    st.markdown(f"- {L}. {sanitize_explanation(r.get(L, ''))}")
+                    if L == h["correct"]:
+                        continue
+                    items.append(f"<li>{L}. {safe_inline(sanitize_explanation(r.get(L, '')))}</li>")
+                st.markdown(f"<ul>{''.join(items)}</ul>", unsafe_allow_html=True)
             st.markdown("---")
 
     # CSV export (no pandas dependency)
@@ -340,7 +362,7 @@ if ss.get("review_open") and ss.history:
     csv_bytes = output.getvalue().encode("utf-8")
     st.download_button("Download results (CSV)", data=csv_bytes, file_name="opsynergy_pmp_session.csv", mime="text/csv")
 
-# --- Footer disclaimer ---
+# --- Footer -------------------------------------------------------------------
 st.markdown("---")
 st.markdown(
     "<small>All questions are generated by AI and should be reviewed for accuracy. "
