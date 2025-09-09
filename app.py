@@ -28,14 +28,13 @@ st.markdown("""
 def safe_inline(text: str) -> str:
     """
     Render text safely without triggering Markdown or LaTeX:
-    - Replace underscores/asterisks between word chars to avoid emphasis.
-    - Escape $ to prevent MathJax.
-    - HTML-escape everything before injecting.
+    - Neutralize underscores/asterisks between word chars to avoid emphasis.
+    - IMPORTANT: do NOT alter '$' (avoids double-escaping like &#36;).
+    - HTML-escape the final string before injecting into HTML.
     """
     s = str(text)
     s = re.sub(r'(?<=\w)_(?=\w)', ' ', s)     # a_b -> a b
     s = re.sub(r'(?<=\w)\*(?=\w)', ' ', s)    # a*b -> a b
-    s = s.replace('$', '&#36;')               # prevent math mode
     return html.escape(s)
 
 def sanitize_explanation(raw_text: str) -> str:
@@ -295,7 +294,10 @@ if ss.question_data:
             for letter in ["A", "B", "C", "D"]:
                 if letter == correct_letter:
                     continue
-                items.append(f"<li>{letter}. {safe_inline(q['choices'][letter])} — {safe_inline(sanitize_explanation(ration.get(letter, '')))}</li>")
+                items.append(
+                    f"<li>{letter}. {safe_inline(q['choices'][letter])} — "
+                    f"{safe_inline(sanitize_explanation(ration.get(letter, '')))}</li>"
+                )
             st.markdown(f"<ul>{''.join(items)}</ul>", unsafe_allow_html=True)
 
         st.markdown(f"<div>Score: {ss.score} out of {ss.total} this session</div>", unsafe_allow_html=True)
