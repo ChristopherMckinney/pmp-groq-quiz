@@ -128,6 +128,7 @@ def generate_prompt(topic):
     ]
     topic_prompt = random.choice(prompt_templates)
 
+    # IMPORTANT: explanation must NOT state which option is correct.
     return f"""
 {topic_prompt}
 
@@ -141,11 +142,15 @@ Return only valid JSON, following this format exactly:
     "D": "Option D"
   }},
   "correct": "B",
-  "explanation": "Explanation of why this is the correct answer"
+  "explanation": "Reasoning only. Do not mention any option letter or say which answer is correct. Do not include phrases like 'the correct answer is ...'."
 }}
 
+Rules:
+- The 'correct' field must be a single letter A, B, C, or D.
+- The 'explanation' must provide reasoning ONLY. Do not restate the correct letter anywhere.
+- Do not include markdown, comments, or extra text — only return the raw JSON.
+
 Session ID: {random_id}
-Do not include markdown, comments, or extra text — only return the raw JSON.
 """
 
 def parse_question(raw_text):
@@ -156,6 +161,19 @@ def parse_question(raw_text):
         raise ValueError("Failed to extract JSON")
     data = json.loads(json_match.group())
     return shuffle_answers(data)
+
+# --- Safety net: remove any stray "correct answer is X" the model might slip in.
+def sanitize_explanation(raw_text: str, correct_letter: str) -> str:
+    if not isinstance(raw_text, str):
+        raw_text = str(raw_text)
+
+    # Strip explicit claims like "the correct answer is B" or "answer C is correct"
+    txt = re.sub(r'(?i)\bthe\s+correct\s+answer\s+is\s+[A-D]\b[:.\s-]*', '', raw_text)
+    txt = re.sub(r'(?i)\b(answer|option)\s+[A-D]\s+(is|was)\s+correct[:.\s-]*', '', txt)
+
+    # Normalize whitespace
+    txt = re.sub(r'\s+', ' ', txt).strip()
+    return txt
 
 if st.button("Generate New Question"):
     try:
@@ -196,7 +214,8 @@ if st.session_state.question_data:
             st.success("Correct.")
         else:
             st.error(f"Incorrect. Correct answer is {q['correct']}.")
-        st.info(f"Explanation: {q['explanation']}")
+        # Always render a letter-free, sanitized explanation
+        st.info(f"Explanation: {sanitize_explanation(q.get('explanation', ''), q['correct'])}")
         st.markdown(f"Score: {st.session_state.score} out of {st.session_state.total} this session")
 
 # --- Footer disclaimer ---
