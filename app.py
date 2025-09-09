@@ -5,6 +5,9 @@ import json
 import re
 import uuid
 import random
+import time
+import csv
+import io
 from html import escape
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
@@ -17,6 +20,7 @@ st.markdown("""
   [data-testid="stStatusWidget"] {display: none;}
   .qtext { font-style: normal; }
   .qtext em, .qtext i { font-style: normal !important; }
+  .muted { color:#555; font-size:0.9rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -28,41 +32,60 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Single input with placeholder (no duplicate label)
-topic = st.text_input(
-    "",
-    value="",
-    placeholder="Type a PMP topic (or leave blank for random)",
-    label_visibility="collapsed"
-)
+# Inputs row
+col1, col2 = st.columns([3, 2])
+with col1:
+    topic = st.text_input(
+        "",
+        value="",
+        placeholder="Type a PMP topic (or leave blank for random)",
+        label_visibility="collapsed"
+    )
+with col2:
+    difficulty = st.selectbox(
+        "Difficulty",
+        options=["Easy", "Moderate", "Hard"],
+        index=1
+    )
 
 # ---- Session state ----
-if "question_data" not in st.session_state:
-    st.session_state.question_data = None
-if "show_result" not in st.session_state:
-    st.session_state.show_result = False
-if "selected_answer" not in st.session_state:
-    st.session_state.selected_answer = None
-if "score" not in st.session_state:
-    st.session_state.score = 0
-if "total" not in st.session_state:
-    st.session_state.total = 0
+ss = st.session_state
+if "question_data" not in ss:
+    ss.question_data = None
+if "show_result" not in ss:
+    ss.show_result = False
+if "selected_answer" not in ss:
+    ss.selected_answer = None
+if "score" not in ss:
+    ss.score = 0
+if "total" not in ss:
+    ss.total = 0
+if "question_start" not in ss:
+    ss.question_start = None
+if "history" not in ss:
+    # each item: {question, choices, correct, chosen, is_correct, explanation, rationales, time_sec, topic, difficulty}
+    ss.history = []
 
 def shuffle_answers(data):
     choices_dict = data.get("choices", {})
     correct_letter = data.get("correct")
 
-    # Create a list of (letter, text) tuples
-    original_choices = list(choices_dict.items())
+    original_choices = list(choices_dict.items())  # [(A, text), ...]
     correct_text = choices_dict.get(correct_letter)
-
     random.shuffle(original_choices)
 
-    # Re-map to new A/B/C/D structure
     new_labels = ["A", "B", "C", "D"]
     new_choices = {label: choice[1] for label, choice in zip(new_labels, original_choices)}
 
-    # Find new label of the correct answer
+    # remap rationales to the new labels if present
+    ration = data.get("rationales", {}) or {}
+    original_rationales = [(k, ration.get(k, "")) for k, _ in choices_dict.items()]
+    # Align rationales with shuffled order
+    shuffled_rationales_texts = [r for (_, r) in original_rationales]
+    # Build mapping letter->text for shuffled order
+    new_rationales = {label: text for label, text in zip(new_labels, [r for (_, r) in zip(original_choices, shuffled_rationales_texts)])}
+
+    # Find new label of the correct answer by matching text
     new_correct = None
     for new_label, (_, text) in zip(new_labels, original_choices):
         if text == correct_text:
@@ -70,11 +93,11 @@ def shuffle_answers(data):
             break
 
     data["choices"] = new_choices
+    data["rationales"] = new_rationales
     data["correct"] = new_correct or "A"
     return data
 
 def _post_groq(body):
-    """Low-level POST with clear error surfacing."""
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
@@ -86,13 +109,9 @@ def _post_groq(body):
     return resp.json()["choices"][0]["message"]["content"]
 
 def call_groq(prompt):
-    """
-    Preferred model from env; automatic fallback to 8B instant if the preferred model fails.
-    """
     preferred = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     fallbacks = ["llama-3.1-8b-instant"]
 
-    # Try preferred
     try:
         body = {
             "model": preferred,
@@ -101,7 +120,6 @@ def call_groq(prompt):
         }
         return _post_groq(body)
     except Exception as e_primary:
-        # Try fallbacks in order
         last_err = e_primary
         for fb in fallbacks:
             try:
@@ -113,26 +131,34 @@ def call_groq(prompt):
                 return _post_groq(body)
             except Exception as e_fb:
                 last_err = e_fb
-        # If all attempts fail, raise the last error
         raise last_err
 
-def generate_prompt(topic):
+def difficulty_instructions(level: str) -> str:
+    if level == "Easy":
+        return ("Prefer foundational knowledge, definitions, and straightforward scenarios. "
+                "Avoid deep ambiguity. One clearly best answer.")
+    if level == "Hard":
+        return ("Use complex, realistic scenarios with competing constraints and multiple plausible options. "
+                "Require judgment to select the best right answer. Distractors must be strong and tempting.")
+    return ("Use situational questions with moderate complexity that test application of concepts, "
+            "stakeholder analysis, sequencing, and change control without being overly ambiguous.")
+
+def generate_prompt(topic, level):
     random_id = str(uuid.uuid4())
     topic_clean = topic.strip() if topic.strip() else "Any PMP-related topic"
 
     prompt_templates = [
-        f"Generate a difficult PMP exam question related to {topic_clean}, using a unique context or situation.",
-        f"Write a scenario-based PMP multiple-choice question involving {topic_clean}, focusing on application and judgment.",
-        f"Produce a PMP-style question that covers advanced understanding of {topic_clean}, not just definitions.",
-        f"Create a challenging PMP exam question using {topic_clean} in a realistic project management situation."
+        f"Generate a PMP exam-style multiple-choice question related to {topic_clean}, using a realistic project scenario.",
+        f"Write a scenario-based PMP question involving {topic_clean}, focusing on application and judgment.",
+        f"Create a challenging PMP question using {topic_clean} in a real-world situation."
     ]
     topic_prompt = random.choice(prompt_templates)
 
-    # IMPORTANT: explanation must NOT state which option is correct.
     return f"""
 {topic_prompt}
+Difficulty guidance: {difficulty_instructions(level)}
 
-Return only valid JSON, following this format exactly:
+Return only valid JSON in this exact schema:
 {{
   "question": "Your question here",
   "choices": {{
@@ -142,58 +168,66 @@ Return only valid JSON, following this format exactly:
     "D": "Option D"
   }},
   "correct": "B",
-  "explanation": "Reasoning only. Do not mention any option letter or say which answer is correct. Do not include phrases like 'the correct answer is ...'."
+  "explanation": "Reasoning only. Do not mention any option letter or say which answer is correct.",
+  "rationales": {{
+    "A": "One-sentence reason addressing A.",
+    "B": "One-sentence reason addressing B.",
+    "C": "One-sentence reason addressing C.",
+    "D": "One-sentence reason addressing D."
+  }}
 }}
 
 Rules:
-- The 'correct' field must be a single letter A, B, C, or D.
-- The 'explanation' must provide reasoning ONLY. Do not restate the correct letter anywhere.
-- Do not include markdown, comments, or extra text — only return the raw JSON.
+- 'correct' must be a single letter A, B, C, or D.
+- 'explanation' provides reasoning ONLY. Do not restate which option is correct.
+- Each 'rationales' entry gives a concise justification for that option (why it is right or not best).
+- Do not include markdown, comments, or extra text — only raw JSON.
+- The question must be unique and suitable for PMP preparation.
 
 Session ID: {random_id}
 """
 
 def parse_question(raw_text):
-    # Make parsing a touch sturdier (strip code fences if present)
     text = re.sub(r"```(?:json)?|```", "", raw_text).strip()
     json_match = re.search(r"\{.*\}", text, re.DOTALL)
     if not json_match:
         raise ValueError("Failed to extract JSON")
     data = json.loads(json_match.group())
+    # Ensure rationales exists
+    data.setdefault("rationales", {"A": "", "B": "", "C": "", "D": ""})
     return shuffle_answers(data)
 
-# --- Safety net: remove any stray "correct answer is X" the model might slip in.
-def sanitize_explanation(raw_text: str, correct_letter: str) -> str:
+# Remove any stray "correct answer is X" claims in explanation or rationales
+def sanitize_explanation(raw_text: str) -> str:
     if not isinstance(raw_text, str):
         raw_text = str(raw_text)
-
-    # Strip explicit claims like "the correct answer is B" or "answer C is correct"
     txt = re.sub(r'(?i)\bthe\s+correct\s+answer\s+is\s+[A-D]\b[:.\s-]*', '', raw_text)
     txt = re.sub(r'(?i)\b(answer|option)\s+[A-D]\s+(is|was)\s+correct[:.\s-]*', '', txt)
-
-    # Normalize whitespace
     txt = re.sub(r'\s+', ' ', txt).strip()
     return txt
 
+# Generate button
 if st.button("Generate New Question"):
     try:
         with st.spinner("Generating..."):
-            prompt = generate_prompt(topic)
+            prompt = generate_prompt(topic, difficulty)
             raw_output = call_groq(prompt)
             question_data = parse_question(raw_output)
-            st.session_state.question_data = question_data
-            st.session_state.show_result = False
-            st.session_state.selected_answer = None
+            ss.question_data = question_data
+            ss.show_result = False
+            ss.selected_answer = None
+            ss.question_start = time.time()
     except Exception as e:
         st.error("Sorry, something went wrong parsing the question.")
         st.caption(f"{e}")
 
-if st.session_state.question_data:
-    q = st.session_state.question_data
+# Render question
+if ss.question_data:
+    q = ss.question_data
 
-    # SAFE render: normalize stray underscores & escape HTML/Markdown
     clean_q = re.sub(r'(?<=\w)_(?=\w)', ' ', q['question'])
     st.markdown(f"<h3 class='qtext'>{escape(clean_q)}</h3>", unsafe_allow_html=True)
+    st.markdown(f"<div class='muted'>Topic: {escape(topic.strip() or 'Random')} • Difficulty: {difficulty}</div>", unsafe_allow_html=True)
 
     selected = st.radio(
         "Choose your answer:",
@@ -203,20 +237,108 @@ if st.session_state.question_data:
         key="selected_answer"
     )
 
-    if selected and not st.session_state.show_result:
-        st.session_state.show_result = True
-        st.session_state.total += 1
-        if selected[0] == q["correct"]:
-            st.session_state.score += 1
+    # When an answer is selected the first time, finalize
+    if selected and not ss.show_result:
+        ss.show_result = True
+        ss.total += 1
+        is_correct = (selected[0] == q["correct"])
+        if is_correct:
+            ss.score += 1
 
-    if st.session_state.show_result and selected:
+        # timing
+        elapsed = None
+        if ss.question_start:
+            elapsed = round(time.time() - ss.question_start, 1)
+
+        # save history row
+        ss.history.append({
+            "question": q["question"],
+            "choices": q["choices"],
+            "correct": q["correct"],
+            "chosen": selected[0],
+            "is_correct": is_correct,
+            "explanation": q.get("explanation", ""),
+            "rationales": q.get("rationales", {}),
+            "time_sec": elapsed,
+            "topic": topic.strip() or "Random",
+            "difficulty": difficulty
+        })
+
+    # Show result + explanations
+    if ss.show_result and selected:
         if selected[0] == q["correct"]:
             st.success("Correct.")
         else:
             st.error(f"Incorrect. Correct answer is {q['correct']}.")
-        # Always render a letter-free, sanitized explanation
-        st.info(f"Explanation: {sanitize_explanation(q.get('explanation', ''), q['correct'])}")
-        st.markdown(f"Score: {st.session_state.score} out of {st.session_state.total} this session")
+
+        # Main reasoning (letter-free)
+        st.info(f"Explanation: {sanitize_explanation(q.get('explanation', ''))}")
+
+        # Elimination block
+        with st.expander("Why the other options are not the best choice"):
+            ration = q.get("rationales", {}) or {}
+            correct_letter = q["correct"]
+            for letter in ["A", "B", "C", "D"]:
+                if letter == correct_letter:
+                    # Show the correct option’s brief justification too
+                    st.markdown(f"- **{letter}. {q['choices'][letter]}** — {sanitize_explanation(ration.get(letter, ''))}")
+                else:
+                    st.markdown(f"- {letter}. {q['choices'][letter]} — {sanitize_explanation(ration.get(letter, ''))}")
+
+        # Running score
+        st.markdown(f"Score: {ss.score} out of {ss.total} this session")
+
+# --- Session Summary / Export ---
+st.markdown("---")
+colL, colR = st.columns([2, 3])
+with colL:
+    if st.button("End Session & Review"):
+        ss.review_open = True
+with colR:
+    st.markdown(f"<div class='muted'>Tip: End session to review wrong answers and download your results.</div>", unsafe_allow_html=True)
+
+if ss.get("review_open") and ss.history:
+    total = len(ss.history)
+    correct = sum(1 for h in ss.history if h["is_correct"])
+    avg_time = round(sum((h["time_sec"] or 0) for h in ss.history) / total, 1) if total else 0.0
+
+    st.subheader("Session Summary")
+    st.markdown(f"- Questions answered: {total}")
+    st.markdown(f"- Correct: {correct}  •  Accuracy: {round(100*correct/total,1)}%")
+    st.markdown(f"- Average response time: {avg_time} seconds")
+
+    # List incorrect answers with explanations
+    wrong = [h for h in ss.history if not h["is_correct"]]
+    if wrong:
+        st.markdown("#### Review your incorrect answers")
+        for i, h in enumerate(wrong, start=1):
+            st.markdown(f"**{i}. {h['question']}**")
+            for L in ["A", "B", "C", "D"]:
+                st.markdown(f"- {L}. {h['choices'][L]}")
+            st.markdown(f"- Your answer: {h['chosen']}")
+            st.markdown(f"- Correct answer: {h['correct']}")
+            st.info(f"Explanation: {sanitize_explanation(h['explanation'])}")
+            with st.expander("Why each option was or wasn't correct"):
+                r = h.get("rationales", {}) or {}
+                for L in ["A", "B", "C", "D"]:
+                    st.markdown(f"- {L}. {sanitize_explanation(r.get(L, ''))}")
+            st.markdown("---")
+
+    # CSV export (no pandas dependency)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["topic","difficulty","question","choice_A","choice_B","choice_C","choice_D","chosen","correct","is_correct","time_sec","explanation"])
+    for h in ss.history:
+        ch = h["choices"]
+        writer.writerow([
+            h["topic"], h["difficulty"], h["question"],
+            ch.get("A",""), ch.get("B",""), ch.get("C",""), ch.get("D",""),
+            h["chosen"], h["correct"], "TRUE" if h["is_correct"] else "FALSE",
+            h["time_sec"] if h["time_sec"] is not None else "",
+            sanitize_explanation(h["explanation"])
+        ])
+    csv_bytes = output.getvalue().encode("utf-8")
+    st.download_button("Download results (CSV)", data=csv_bytes, file_name="opsynergy_pmp_session.csv", mime="text/csv")
 
 # --- Footer disclaimer ---
 st.markdown("---")
