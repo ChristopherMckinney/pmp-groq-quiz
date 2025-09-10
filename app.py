@@ -31,15 +31,26 @@ def safe_inline(text: str) -> str:
     Render text safely without triggering Markdown/LaTeX:
     - Remove wrapped emphasis markers: _..._ and *...* (keep inner text)
     - Replace underscores/asterisks between word chars (a_b, a*b) with a space
-    - DO NOT alter '$'
-    - Only escape &, <, > (leave quotes alone so we don't show &#x27;)
+    - HTML-escape &, <, > (leave quotes alone)
+    - Replace $ with entity AFTER escaping to avoid MathJax and double-escaping
     """
     s = str(text)
+
+    # Strip wrapped emphasis
     s = re.sub(r'_(.+?)_', r'\1', s)
     s = re.sub(r'\*(.+?)\*', r'\1', s)
+
+    # Break inline emphasis joins (a_b / a*b)
     s = re.sub(r'(?<=\w)_(?=\w)', ' ', s)
     s = re.sub(r'(?<=\w)\*(?=\w)', ' ', s)
-    return html.escape(s, quote=False)  # <- key change: don't escape quotes
+
+    # Escape &, <, >
+    s = html.escape(s, quote=False)
+
+    # VERY IMPORTANT: neutralize MathJax by replacing literal dollars
+    s = s.replace('$', '&#36;')
+
+    return s
 
 def sanitize_explanation(raw_text: str) -> str:
     """Remove any stray 'correct answer is X' claims and tidy whitespace."""
@@ -229,7 +240,10 @@ if view == "quiz":
     if ss.question_data:
         q = ss.question_data
 
-        st.markdown(f"<h3 class='qtext'>{safe_inline(q['question'])}</h3>", unsafe_allow_html=True)
+        st.markdown(
+            f"<h3 class='qtext tex2jax_ignore mathjax_ignore'>{safe_inline(q['question'])}</h3>",
+            unsafe_allow_html=True
+        )
         st.markdown(
             f"<div class='muted'>Topic: {safe_inline(topic.strip() or 'Random')} • Difficulty: {safe_inline(difficulty)}</div>",
             unsafe_allow_html=True
@@ -317,7 +331,10 @@ else:  # view == "review"
         if wrong:
             st.markdown("#### Review your incorrect answers")
             for i, h in enumerate(wrong, start=1):
-                st.markdown(f"<strong class='qtext'>{i}. {safe_inline(h['question'])}</strong>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<strong class='qtext tex2jax_ignore mathjax_ignore'>{i}. {safe_inline(h['question'])}</strong>",
+                    unsafe_allow_html=True
+                )
 
                 lis = [f"<li>{L}. {safe_inline(h['choices'][L])}</li>" for L in ["A","B","C","D"]]
                 st.markdown(f"<ul>{''.join(lis)}</ul>", unsafe_allow_html=True)
