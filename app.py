@@ -31,7 +31,7 @@ def safe_inline(text: str) -> str:
     Render text safely without triggering Markdown/LaTeX:
     - Remove wrapped emphasis markers: _..._ and *...* (keep inner text)
     - Replace underscores/asterisks between word chars (a_b, a*b) with a space
-    - DO NOT alter '$' (avoids double-escaping)
+    - DO NOT alter '$'
     - HTML-escape the result before injecting into HTML
     """
     s = str(text)
@@ -50,14 +50,20 @@ def sanitize_explanation(raw_text: str) -> str:
     txt = re.sub(r'\s+', ' ', txt).strip()
     return txt
 
+# NEW: stable query param helpers (no experimental API)
 def set_view(view: str):
-    """Route-like navigation via query params."""
-    st.experimental_set_query_params(view=view)
-    st.experimental_rerun()
+    """Route-like navigation via query params (stable API)."""
+    st.query_params["view"] = view
+    # Streamlit usually reruns automatically on query param change,
+    # but call st.rerun() to be explicit and future-proof.
+    st.rerun()
 
 def get_view() -> str:
-    qp = st.experimental_get_query_params()
-    return (qp.get("view", ["quiz"])[0]) or "quiz"
+    val = st.query_params.get("view", "quiz")
+    # In case multiple values exist, normalize to a single string
+    if isinstance(val, list):
+        return val[0] if val else "quiz"
+    return val or "quiz"
 
 def reset_session():
     keys_defaults = {
@@ -359,7 +365,6 @@ else:  # view == "review"
             set_view("quiz")
     with colB:
         if st.button("Back to Quiz (keep session)"):
-            # Just navigate back; history/score preserved.
             set_view("quiz")
 
 # ---------- Footer ----------
