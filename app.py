@@ -26,30 +26,46 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------- Helpers ----------
-def safe_inline(text: str) -> str:
-    """
-    Render text safely without triggering Markdown/LaTeX:
-    - Remove wrapped emphasis markers: _..._ and *...* (keep inner text)
-    - Replace underscores/asterisks between word chars (a_b, a*b) with a space
-    - HTML-escape &, <, > (leave quotes alone)
-    - Replace $ with entity AFTER escaping to avoid MathJax and double-escaping
-    """
-    s = str(text)
-
-    # Strip wrapped emphasis
+def _strip_wrapped_emphasis(s: str) -> str:
+    # Remove wrapped emphasis markers while keeping contents
     s = re.sub(r'_(.+?)_', r'\1', s)
     s = re.sub(r'\*(.+?)\*', r'\1', s)
+    return s
 
-    # Break inline emphasis joins (a_b / a*b)
+def _break_inline_emphasis(s: str) -> str:
+    # Replace a_b / a*b joins with spaces
     s = re.sub(r'(?<=\w)_(?=\w)', ' ', s)
     s = re.sub(r'(?<=\w)\*(?=\w)', ' ', s)
+    return s
 
-    # Escape &, <, >
+def safe_inline(text: str) -> str:
+    """
+    For HTML-rendered blocks (we'll pass unsafe_allow_html=True).
+    - Remove _..._ / *...* wrappers
+    - Break a_b / a*b joins
+    - Escape &, <, > (leave quotes so we don't get &#x27;)
+    - Replace $ with &#36; AFTER escaping so MathJax won't trigger
+    - Result can be inserted inside HTML safely.
+    """
+    s = str(text)
+    s = _strip_wrapped_emphasis(s)
+    s = _break_inline_emphasis(s)
     s = html.escape(s, quote=False)
+    s = s.replace('$', '&#36;')  # prevent MathJax in HTML context
+    return s
 
-    # VERY IMPORTANT: neutralize MathJax by replacing literal dollars
-    s = s.replace('$', '&#36;')
-
+def safe_plain(text: str) -> str:
+    """
+    For plain-text contexts (e.g., Streamlit radio labels).
+    - Remove _..._ / *...* wrappers
+    - Break a_b / a*b joins
+    - Insert ZWSP after $ so MathJax can't see a delimiter ($​1 shows as $1)
+    - Do NOT HTML-escape (plain text).
+    """
+    s = str(text)
+    s = _strip_wrapped_emphasis(s)
+    s = _break_inline_emphasis(s)
+    s = s.replace('$', '$\u200B')  # $ + zero-width space
     return s
 
 def sanitize_explanation(raw_text: str) -> str:
@@ -249,9 +265,11 @@ if view == "quiz":
             unsafe_allow_html=True
         )
 
+        # Build sanitized radio options (plain text safe)
+        display_options = [(L, safe_plain(txt)) for L, txt in q["choices"].items()]
         selected = st.radio(
             "Choose your answer:",
-            options=list(q["choices"].items()),
+            options=display_options,
             format_func=lambda x: f"{x[0]}. {x[1]}",
             index=None,
             key="selected_answer"
@@ -268,7 +286,7 @@ if view == "quiz":
             elapsed = round(time.time() - ss.question_start, 1) if ss.question_start else None
             ss.history.append({
                 "question": q["question"],
-                "choices": q["choices"],
+                "choices": q["choices"],  # keep originals for review (we sanitize on render)
                 "correct": q["correct"],
                 "chosen": selected[0],
                 "is_correct": is_correct,
