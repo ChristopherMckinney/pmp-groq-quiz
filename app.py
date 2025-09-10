@@ -32,14 +32,14 @@ def safe_inline(text: str) -> str:
     - Remove wrapped emphasis markers: _..._ and *...* (keep inner text)
     - Replace underscores/asterisks between word chars (a_b, a*b) with a space
     - DO NOT alter '$'
-    - HTML-escape the result before injecting into HTML
+    - Only escape &, <, > (leave quotes alone so we don't show &#x27;)
     """
     s = str(text)
     s = re.sub(r'_(.+?)_', r'\1', s)
     s = re.sub(r'\*(.+?)\*', r'\1', s)
     s = re.sub(r'(?<=\w)_(?=\w)', ' ', s)
     s = re.sub(r'(?<=\w)\*(?=\w)', ' ', s)
-    return html.escape(s)
+    return html.escape(s, quote=False)  # <- key change: don't escape quotes
 
 def sanitize_explanation(raw_text: str) -> str:
     """Remove any stray 'correct answer is X' claims and tidy whitespace."""
@@ -50,17 +50,13 @@ def sanitize_explanation(raw_text: str) -> str:
     txt = re.sub(r'\s+', ' ', txt).strip()
     return txt
 
-# NEW: stable query param helpers (no experimental API)
+# Stable query param helpers
 def set_view(view: str):
-    """Route-like navigation via query params (stable API)."""
     st.query_params["view"] = view
-    # Streamlit usually reruns automatically on query param change,
-    # but call st.rerun() to be explicit and future-proof.
     st.rerun()
 
 def get_view() -> str:
     val = st.query_params.get("view", "quiz")
-    # In case multiple values exist, normalize to a single string
     if isinstance(val, list):
         return val[0] if val else "quiz"
     return val or "quiz"
@@ -92,7 +88,7 @@ def shuffle_answers(data: dict) -> dict:
     correct_letter = data.get("correct")
     rationales = data.get("rationales", {}) or {}
 
-    original_items = list(choices.items())  # [('A','...'), ('B','...'), ...]
+    original_items = list(choices.items())
     random.shuffle(original_items)
 
     new_labels = ["A", "B", "C", "D"]
