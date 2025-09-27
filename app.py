@@ -13,14 +13,14 @@ import html  # for HTML escaping
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
 # ===== Brand Colors =====
-OP_BLUE = "#1E5A8A"  # OpSynergy blue
-OP_RED  = "#F0342C"  # OpSynergy red
+OP_BLUE = "#1E5A8A"   # OpSynergy blue
+OP_RED  = "#F0342C"   # OpSynergy red
 
 # ---------- Styles ----------
 st.markdown(f"""
 <style>
   /* Center the whole app nicely on wide screens */
-  .block-container {{ max-width: 980px; margin-left: auto; margin-right: auto; padding-left: 15px; padding-right: 15px; }}
+  .block-container {{ max-width: 980px; margin-left: auto; margin-right: auto; }}
 
   [data-testid="stToolbar"] {{visibility: hidden; height: 0; position: fixed;}}
   [data-testid="stDecoration"] {{display: none;}}
@@ -36,33 +36,21 @@ st.markdown(f"""
     width:100%; height:70px;
     background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
     display:flex; align-items:center; justify-content:center;
-    margin-bottom:14px; border-radius:14px;
+    margin-bottom:12px; border-radius:14px;
   }}
   .ops-banner h1 {{
     color:#fff; font-size:2rem; font-weight:700; margin:0;
     text-shadow: 0 1px 2px rgba(0,0,0,.25);
   }}
 
-  /* Timer card (compact container that holds label, time, and buttons) */
-  .ops-timer-card {{
-    display:flex; align-items:center; gap:10px;
-    padding:8px 10px; border-radius:12px;
-    background: rgba(0,0,0,.035);
-    border: 1px solid rgba(0,0,0,.10);
-  }}
-  .ops-timer-label {{ color:#444; font-size:0.95rem; font-weight:600; }}
-  .ops-time {{
-    padding:6px 10px; border-radius:8px;
-    background:#fff; border:1px solid rgba(0,0,0,.12);
-    font-weight:700; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
-    min-width:76px; text-align:center;
-  }}
-  /* Compact icon buttons only for timer */
-  .ops-icon button {{
-    padding: 0.28rem 0.6rem !important;
-    font-size: 0.95rem !important;
-    line-height: 1 !important;
-    margin: 0 2px !important;
+  /* Simple, right-aligned timer text (no box) */
+  .ops-timer-row {{ display:flex; justify-content:flex-end; }}
+  .ops-time-plain {{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    font-size: 1.05rem;
+    color: #222;
   }}
 </style>
 """, unsafe_allow_html=True)
@@ -120,61 +108,32 @@ def reset_session():
     for k, v in keys_defaults.items():
         st.session_state[k] = v
 
-# ===== OVERALL TIMER (▶︎ / ⏸ toggle + ↻ reset) =====
-if "timer_running" not in st.session_state:
-    st.session_state.timer_running = False
-if "timer_start" not in st.session_state:
-    st.session_state.timer_start = None
-if "elapsed" not in st.session_state:
-    st.session_state.elapsed = 0.0
+# ===== ALWAYS-ON TIMER (starts on first load, no controls) =====
+if "app_start_ts" not in st.session_state:
+    st.session_state.app_start_ts = time.time()  # start ticking now
 
-def toggle_timer():
-    if st.session_state.timer_running:
-        # Pause
-        st.session_state.elapsed += time.time() - st.session_state.timer_start
-        st.session_state.timer_running = False
-    else:
-        # Start
-        st.session_state.timer_running = True
-        st.session_state.timer_start = time.time()
-
-def reset_timer():
-    st.session_state.timer_running = False
-    st.session_state.timer_start = None
-    st.session_state.elapsed = 0.0
-
-def current_elapsed_seconds() -> int:
-    if st.session_state.timer_running:
-        return int(st.session_state.elapsed + (time.time() - st.session_state.timer_start))
-    return int(st.session_state.elapsed)
+def elapsed_seconds() -> int:
+    return max(0, int(time.time() - st.session_state.app_start_ts))
 
 def fmt_mm_ss(total_seconds: int) -> str:
-    m, s = divmod(max(0, int(total_seconds)), 60)
+    m, s = divmod(int(total_seconds), 60)
     return f"{m:02d}:{s:02d}"
 
 # ---------- Banner ----------
 st.markdown("<div class='ops-banner'><h1>OpSynergy PMP AI Quiz Generator</h1></div>", unsafe_allow_html=True)
 
-# ---------- Timer (tucked under the right side of the banner) ----------
-left_empty, right_timer = st.columns([4, 1])
-with right_timer:
-    label = "Timer"
-    time_text = fmt_mm_ss(current_elapsed_seconds())
-    icon_toggle = "▶︎" if not st.session_state.timer_running else "⏸"
-    col_label, col_time, col_toggle, col_reset = st.columns([1.2, 1.2, 0.8, 0.8])
-    with col_label:
-        st.markdown("<span class='ops-timer-label' style='padding-top:8px;'>Timer</span>", unsafe_allow_html=True)
-    with col_time:
-        st.markdown(f"<span class='ops-time' style='margin-top:6px;'>{time_text}</span>", unsafe_allow_html=True)
-    with col_toggle:
-        st.button(icon_toggle, key="ops_toggle", on_click=toggle_timer, help="Start/Pause")
-    with col_reset:
-        st.button("↻", key="ops_reset", on_click=reset_timer, help="Reset")
+# ---------- Plain timer under banner, right-aligned ----------
+st.markdown(
+    f"<div class='ops-timer-row'><span class='ops-time-plain'>{fmt_mm_ss(elapsed_seconds())}</span></div>",
+    unsafe_allow_html=True
+)
 
-# Live update every second when running
-if st.session_state.timer_running:
-    time.sleep(1)
-    st.rerun()
+# Live update once per second (non-blocking)
+try:
+    st.autorefresh(interval=1000, key="ops_timer_tick")
+except Exception:
+    # If very old Streamlit, skip autorefresh; timer will still update on interactions.
+    pass
 
 # ---------- Session state ----------
 ss = st.session_state
