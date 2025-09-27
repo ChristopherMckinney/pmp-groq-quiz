@@ -10,65 +10,99 @@ import csv
 import io
 import html  # for HTML escaping
 
-st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
+# Set layout to "wide" temporarily so we can control the centering with CSS,
+# then use CSS to constrain the main content.
+st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="wide")
 
 # ===== Brand Colors =====
-OP_BLUE = "#1E5A8A"   # OpSynergy blue
-OP_RED  = "#F0342C"   # OpSynergy red
+OP_BLUE = "#1E5A8A"     # OpSynergy blue
+OP_RED  = "#F0342C"     # OpSynergy red
 
 # ---------- Styles ----------
 st.markdown(f"""
 <style>
-  /* Center the whole app nicely on wide screens */
-  .block-container {{ max-width: 980px; margin-left: auto; margin-right: auto; }}
+    /* 1. Center the whole app nicely on wide screens and constrain it */
+    .block-container {{ 
+        max-width: 980px; 
+        margin-left: auto; 
+        margin-right: auto; 
+        padding-top: 1rem !important; 
+    }}
 
-  [data-testid="stToolbar"] {{visibility: hidden; height: 0; position: fixed;}}
-  [data-testid="stDecoration"] {{display: none;}}
-  [data-testid="stStatusWidget"] {{display: none;}}
+    /* Hide Streamlit default chrome */
+    [data-testid="stToolbar"] {{visibility: hidden; height: 0; position: fixed;}}
+    [data-testid="stDecoration"] {{display: none;}}
+    [data-testid="stStatusWidget"] {{display: none;}}
+    header {{ display: none !important; }}
 
-  .qtext {{ font-style: normal; }}
-  .qtext em, .qtext i {{ font-style: normal !important; }}
-  .muted {{ color:#555; font-size:0.9rem; }}
-  .page-title {{ font-size:1.6rem; font-weight:700; margin: 0.25rem 0 0.75rem 0; }}
+    .qtext {{ font-style: normal; }}
+    .qtext em, .qtext i {{ font-style: normal !important; }}
+    .muted {{ color:#555; font-size:0.9rem; }}
+    .page-title {{ font-size:1.6rem; font-weight:700; margin: 0.25rem 0 0.75rem 0; }}
 
-  /* Banner */
-  .ops-banner {{
-    width:100%; height:70px;
-    background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
-    display:flex; align-items:center; justify-content:center;
-    margin-bottom:14px; border-radius:14px;
-  }}
-  .ops-banner h1 {{
-    color:#fff; font-size:2rem; font-weight:700; margin:0;
-    text-shadow: 0 1px 2px rgba(0,0,0,.25);
-  }}
+    /* NEW: Container for Banner & Timer at the very top of the centered content */
+    .ops-header-row {{
+        width: 100%;
+        display: flex;
+        justify-content: center; /* Center the banner content inside */
+        position: relative; /* Anchor for absolute positioning of timer */
+        margin-bottom: 25px; /* Space below the entire header section */
+    }}
+    
+    /* Banner */
+    .ops-banner {{
+        max-width: 980px; /* Constrain to the main content width */
+        width: 100%; 
+        height: 70px;
+        background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
+        display: flex; 
+        align-items: center; 
+        justify-content: center;
+        border-radius: 14px;
+    }}
+    .ops-banner h1 {{
+        color:#fff; font-size:2rem; font-weight:700; margin:0;
+        text-shadow: 0 1px 2px rgba(0,0,0,.25);
+    }}
 
-  /* Timer card (compact container that holds label, time, and buttons) */
-  .ops-timer-card {{
-    display:flex; align-items:center; gap:10px;
-    padding:8px 10px; border-radius:12px;
-    background: rgba(0,0,0,.035);
-    border: 1px solid rgba(0,0,0,.10);
-  }}
-  .ops-timer-row {{ display:flex; justify-content:flex-end; }}
-  .ops-timer-label {{ color:#444; font-size:0.95rem; font-weight:600; }}
-  .ops-time {{
-    padding:6px 10px; border-radius:8px;
-    background:#fff; border:1px solid rgba(0,0,0,.12);
-    font-weight:700; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
-    min-width:76px; text-align:center;
-  }}
-  /* Compact icon buttons only for timer */
-  .ops-icon button {{
-    padding: 0.28rem 0.6rem !important;
-    font-size: 0.95rem !important;
-    line-height: 1 !important;
-    margin: 0 2px !important;
-  }}
+    /* Timer card (positioned relative to ops-header-row) */
+    .ops-timer-card {{
+        position: absolute;
+        top: 80px; /* Position below the banner */
+        right: 0px; /* Align to the right edge of the centered content */
+        display: flex; 
+        align-items: center; 
+        gap: 8px;
+        padding: 6px 10px; 
+        border-radius: 10px;
+        background: rgba(0,0,0,.035);
+        border: 1px solid rgba(0,0,0,.10);
+        z-index: 10;
+        transform: translateY(-50%); /* Pull it up a bit to be tucked under */
+    }}
+    .ops-time {{
+        padding:4px 8px; border-radius:6px;
+        background:#fff; border:1px solid rgba(0,0,0,.12);
+        font-weight:700; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+        min-width:70px; text-align:center;
+        font-size: 1.1rem;
+    }}
+    .ops-timer-label {{ 
+        color:#444; font-size:0.9rem; font-weight:600; 
+        margin-right: 4px;
+    }}
+    .ops-icon button {{
+        padding: 0.25rem 0.5rem !important;
+        font-size: 0.95rem !important;
+        line-height: 1 !important;
+        margin: 0 1px !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- Helpers ----------
+# The rest of the script is unchanged up to the section where the timer is rendered.
+
+# ---------- Helpers (No change) ----------
 def _strip_wrapped_emphasis(s: str) -> str:
     s = re.sub(r'_(.+?)_', r'\1', s)
     s = re.sub(r'\*(.+?)\*', r'\1', s)
@@ -121,7 +155,7 @@ def reset_session():
     for k, v in keys_defaults.items():
         st.session_state[k] = v
 
-# ===== OVERALL TIMER (▶︎ / ⏸ toggle + ↻ reset) =====
+# ===== OVERALL TIMER (▶︎ / ⏸ toggle + ↻ reset) (No change) =====
 if "timer_running" not in st.session_state:
     st.session_state.timer_running = False
 if "timer_start" not in st.session_state:
@@ -153,61 +187,66 @@ def fmt_mm_ss(total_seconds: int) -> str:
     m, s = divmod(max(0, int(total_seconds)), 60)
     return f"{m:02d}:{s:02d}"
 
-# ---------- Banner ----------
+# -------------------------------------------------------------
+# ---------- Banner and Timer (REPLACED SECTION) ----------
+# -------------------------------------------------------------
+
+# Start the header container for the banner and timer
+st.markdown("<div class='ops-header-row'>", unsafe_allow_html=True)
+
+# 1. Banner (centered inside the header-row)
 st.markdown("<div class='ops-banner'><h1>OpSynergy PMP AI Quiz Generator</h1></div>", unsafe_allow_html=True)
 
-# ---------- Timer (in a compact card, right edge of centered container) ----------
-st.markdown("<div class='ops-timer-row'>", unsafe_allow_html=True)
-timer_col = st.container()
-with timer_col:
-    label = "Timer"
-    time_text = fmt_mm_ss(current_elapsed_seconds())
-    icon_toggle = "▶︎" if not st.session_state.timer_running else "⏸"
+# 2. Timer (absolute positioned to the right)
+label = "Timer"
+time_text = fmt_mm_ss(current_elapsed_seconds())
+icon_toggle = "▶︎" if not st.session_state.timer_running else "⏸"
+
+# Use st.container to create a column for the timer buttons, keeping them within the
+# centered Streamlit space, but positioned relative to the ops-header-row
+with st.container():
+    # The actual timer display
     st.markdown(
         f"<div class='ops-timer-card'>"
         f"<span class='ops-timer-label'>{label}</span>"
         f"<span class='ops-time'>{time_text}</span>"
-        f"</div>",
+        f"<div class='ops-icon'>",
         unsafe_allow_html=True
     )
-    # place the buttons right under the card, right-aligned and compact
-    c_left, c_right = st.columns([1, 1])
-    with c_left:
-        st.markdown("<div class='ops-icon'>", unsafe_allow_html=True)
+    
+    # Place buttons inside the timer card for a compact look
+    c_play, c_reset = st.columns([1, 1])
+    with c_play:
         st.button(icon_toggle, key="ops_toggle", on_click=toggle_timer, help="Start/Pause")
-        st.markdown("</div>", unsafe_allow_html=True)
-    with c_right:
-        st.markdown("<div class='ops-icon' style='display:flex; justify-content:flex-end;'>", unsafe_allow_html=True)
+    with c_reset:
         st.button("↻", key="ops_reset", on_click=reset_timer, help="Reset")
-        st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div></div>", unsafe_allow_html=True) # Close ops-icon and ops-timer-card
+
+# End the header container
 st.markdown("</div>", unsafe_allow_html=True)
 
-# Live update every second ONLY when running (no sleep; no spinner)
-# Use st_autorefresh for broad compatibility.
+
+# Live update every second ONLY when running
+# This is crucial for the timer to actually count up.
 if st.session_state.timer_running:
     try:
-        st_autorefresh = st.autorefresh  # newer API (Streamlit ≥1.36)
-    except AttributeError:
-        from streamlit.runtime.scriptrunner import RerunData, RerunException  # noqa: F401
-        from streamlit.runtime.scriptrunner import add_script_run_ctx  # noqa: F401
-        # Fallback to legacy API name if available
-        try:
-            from streamlit import experimental_rerun as _legacy  # type: ignore
-        except Exception:
-            _legacy = None
-        # try st.experimental_rerun every ~1s by creating a benign widget tick
-    try:
+        # Newer Streamlit API
         st.autorefresh(interval=1000, key="ops_timer_tick")
-    except Exception:
-        # very old versions: create a hidden empty placeholder that forces a rerun
-        st.write("")  # no-op
+    except AttributeError:
+        # Fallback for older versions if needed (though st.autorefresh is the standard approach)
+        pass
 
-# ---------- Session state ----------
+# -------------------------------------------------------------
+# The rest of the script is unchanged.
+# -------------------------------------------------------------
+
+# ---------- Session state (No change) ----------
 ss = st.session_state
 if "question_data" not in ss:
     reset_session()
 
-# ---------- LLM plumbing ----------
+# ---------- LLM plumbing (No change) ----------
 def shuffle_answers(data: dict) -> dict:
     choices = data.get("choices", {}) or {}
     correct_letter = data.get("correct")
@@ -319,7 +358,7 @@ def parse_question(raw_text):
     data.setdefault("rationales", {"A": "", "B": "", "C": "", "D": ""})
     return shuffle_answers(data)
 
-# ---------- Views ----------
+# ---------- Views (No change) ----------
 view = get_view()
 
 if view == "quiz":
@@ -496,7 +535,7 @@ else:  # view == "review"
         if st.button("Back to Quiz (keep session)"):
             set_view("quiz")
 
-# ---------- Footer ----------
+# ---------- Footer (No change) ----------
 st.markdown("---")
 st.markdown(
     "<small>All questions are generated by AI and should be reviewed for accuracy. "
