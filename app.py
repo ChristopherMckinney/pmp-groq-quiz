@@ -13,8 +13,8 @@ import html  # for HTML escaping
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
 # ===== Brand Colors (swap to exact hex if you have them) =====
-OP_BLUE = "#1E5A8A"   # OpSynergy blue (approx from your screenshot)
-OP_RED  = "#F0342C"   # OpSynergy red  (approx from your logo)
+OP_BLUE = "#1E5A8A"   # OpSynergy blue
+OP_RED  = "#F0342C"   # OpSynergy red
 
 # ---------- Styles ----------
 st.markdown(f"""
@@ -32,14 +32,14 @@ st.markdown(f"""
     width:100%; height:70px;
     background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
     display:flex; align-items:center; justify-content:center;
-    margin-bottom:10px; border-radius:10px;
+    margin-bottom:10px; border-radius:14px;
   }}
   .ops-banner h1 {{
     color:#fff; font-size:2rem; font-weight:700; margin:0;
     text-shadow: 0 1px 2px rgba(0,0,0,.25);
   }}
 
-  /* Timer pill under banner (right side) */
+  /* Overall timer (under banner, right) */
   .ops-timer-pill {{
     display:inline-block;
     padding:8px 12px;
@@ -51,8 +51,8 @@ st.markdown(f"""
     min-width: 92px;
     text-align:center;
   }}
-  .ops-timer-wrap {{ display:flex; justify-content:flex-end; align-items:center; gap:8px; }}
-  .ops-timer-label {{ color:#444; font-size:0.9rem; }}
+  .ops-timer-wrap {{ display:flex; justify-content:flex-end; align-items:center; gap:10px; }}
+  .ops-timer-label {{ color:#444; font-size:0.95rem; font-weight:600; }}
   .ops-small-btn button {{ padding:0.3rem 0.6rem; }}
 </style>
 """, unsafe_allow_html=True)
@@ -110,26 +110,33 @@ def reset_session():
     for k, v in keys_defaults.items():
         st.session_state[k] = v
 
-# ===== Timer helpers (under-banner, auto-start per question) =====
-if "timer_end" not in st.session_state:
-    st.session_state.timer_end = None
-if "time_up" not in st.session_state:
-    st.session_state.time_up = False
-if "timer_duration" not in st.session_state:
-    st.session_state.timer_duration = 120  # default seconds
+# ===== OVERALL TIMER (Start / Pause / Reset) =====
+if "timer_running" not in st.session_state:
+    st.session_state.timer_running = False
+if "timer_start" not in st.session_state:
+    st.session_state.timer_start = None
+if "elapsed" not in st.session_state:
+    st.session_state.elapsed = 0.0
 
-def start_timer(seconds: int):
-    st.session_state.timer_end = time.time() + int(seconds)
-    st.session_state.time_up = False
+def start_timer():
+    if not st.session_state.timer_running:
+        st.session_state.timer_running = True
+        st.session_state.timer_start = time.time()
 
-def clear_timer():
-    st.session_state.timer_end = None
-    st.session_state.time_up = False
+def pause_timer():
+    if st.session_state.timer_running:
+        st.session_state.elapsed += time.time() - st.session_state.timer_start
+        st.session_state.timer_running = False
 
-def seconds_remaining():
-    if st.session_state.timer_end is None:
-        return None
-    return max(0, int(st.session_state.timer_end - time.time()))
+def reset_timer():
+    st.session_state.timer_running = False
+    st.session_state.timer_start = None
+    st.session_state.elapsed = 0.0
+
+def current_elapsed_seconds() -> int:
+    if st.session_state.timer_running:
+        return int(st.session_state.elapsed + (time.time() - st.session_state.timer_start))
+    return int(st.session_state.elapsed)
 
 def fmt_mm_ss(total_seconds: int) -> str:
     m, s = divmod(max(0, int(total_seconds)), 60)
@@ -141,37 +148,30 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------- Under-banner right timer row ----------
-# This sits visually between the banner and the Topic/Difficulty inputs
+# ---------- Overall timer row (under banner, right-aligned) ----------
 rowL, rowR = st.columns([3, 2], vertical_alignment="center")
 with rowR:
-    rem = seconds_remaining()
-    display = "—" if rem is None else fmt_mm_ss(rem)
-    # right-aligned timer + small controls
+    display_time = fmt_mm_ss(current_elapsed_seconds())
     st.markdown(
         f"<div class='ops-timer-wrap'>"
-        f"<span class='ops-timer-label'>Time per question</span>"
-        f"<span class='ops-timer-pill'>{display}</span>"
+        f"<span class='ops-timer-label'>Timer</span>"
+        f"<span class='ops-timer-pill'>{display_time}</span>"
         f"</div>",
         unsafe_allow_html=True
     )
-    # tiny controls underneath (optional)
-    with st.expander("Timer settings", expanded=False):
-        st.session_state.timer_duration = st.number_input(
-            "Seconds", min_value=30, max_value=3600,
-            value=st.session_state.timer_duration, step=15
-        )
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("Start / Reset"):
-                start_timer(st.session_state.timer_duration)
-        with c2:
-            if st.button("Clear"):
-                clear_timer()
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("Start"):
+            start_timer()
+    with c2:
+        if st.button("Pause"):
+            pause_timer()
+    with c3:
+        if st.button("Reset"):
+            reset_timer()
 
-# keep the page ticking if timer is running
-if seconds_remaining() is not None and seconds_remaining() > 0:
-    # light touch to refresh roughly once a second
+# auto-refresh while running
+if st.session_state.timer_running:
     time.sleep(1)
     st.rerun()
 
@@ -319,8 +319,6 @@ if view == "quiz":
                 ss.show_result = False
                 ss.selected_answer = None
                 ss.question_start = time.time()
-                # start the per-question countdown
-                start_timer(st.session_state.timer_duration)
         except Exception as e:
             st.error("Sorry, something went wrong parsing the question.")
             st.caption(f"{e}")
@@ -345,8 +343,7 @@ if view == "quiz":
             options=display_options,
             format_func=lambda x: f"{x[0]}. {x[1]}",
             index=None,
-            key="selected_answer",
-            disabled=bool(st.session_state.time_up)  # lock if time's up
+            key="selected_answer"
         )
 
         # Grade first selection
@@ -370,12 +367,6 @@ if view == "quiz":
                 "topic": topic.strip() or "Random",
                 "difficulty": difficulty
             })
-
-        # If timer hit zero, mark as time up once (and lock inputs)
-        rem_now = seconds_remaining()
-        if rem_now == 0 and not st.session_state.time_up:
-            st.session_state.time_up = True
-            st.warning("Time is up for this question.")
 
         # Show result
         if ss.show_result and selected:
