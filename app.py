@@ -19,16 +19,17 @@ OP_RED  = "#F0342C"   # OpSynergy red
 # ---------- Styles ----------
 st.markdown(f"""
 <style>
+  /* Center the whole app nicely on wide screens */
+  .block-container {{ max-width: 980px; margin-left: auto; margin-right: auto; }}
+
   [data-testid="stToolbar"] {{visibility: hidden; height: 0; position: fixed;}}
   [data-testid="stDecoration"] {{display: none;}}
   [data-testid="stStatusWidget"] {{display: none;}}
+
   .qtext {{ font-style: normal; }}
   .qtext em, .qtext i {{ font-style: normal !important; }}
   .muted {{ color:#555; font-size:0.9rem; }}
   .page-title {{ font-size:1.6rem; font-weight:700; margin: 0.25rem 0 0.75rem 0; }}
-
-  /* Constrain main content so header looks centered on wide screens */
-  .main > div {{ max-width: 980px; margin-left: auto; margin-right: auto; }}
 
   /* Banner */
   .ops-banner {{
@@ -42,7 +43,7 @@ st.markdown(f"""
     text-shadow: 0 1px 2px rgba(0,0,0,.25);
   }}
 
-  /* Overall timer */
+  /* Timer cluster */
   .ops-timer-row {{ display:flex; align-items:flex-start; justify-content:flex-end; gap:12px; }}
   .ops-timer-pill {{
     display:inline-block;
@@ -51,17 +52,17 @@ st.markdown(f"""
     background: rgba(0,0,0,.06);
     border: 1px solid rgba(0,0,0,.12);
     font-weight:700;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
     min-width: 92px;
     text-align:center;
   }}
   .ops-timer-label {{ color:#444; font-size:0.95rem; font-weight:600; line-height:1.1; padding-top:4px; }}
 
-  /* Tighter/smaller timer buttons (only for timer row) */
+  /* Compact buttons only in the timer area */
   .ops-btn-sm button {{
     padding: 0.28rem 0.6rem !important;
     font-size: 0.85rem !important;
-    margin: 0 4px 0 0 !important;
+    margin: 0 4px !important;
   }}
 </style>
 """, unsafe_allow_html=True)
@@ -119,25 +120,24 @@ def reset_session():
     for k, v in keys_defaults.items():
         st.session_state[k] = v
 
-# ===== OVERALL TIMER (Start / Pause / Reset) =====
+# ===== OVERALL TIMER (Start/Pause toggle + Reset) =====
 if "timer_running" not in st.session_state:
     st.session_state.timer_running = False
 if "timer_start" not in st.session_state:
     st.session_state.timer_start = None
 if "elapsed" not in st.session_state:
     st.session_state.elapsed = 0.0
-if "timer_live" not in st.session_state:
-    st.session_state.timer_live = False   # Live auto-update toggle (prevents greying)
 
-def start_timer():
-    if not st.session_state.timer_running:
-        st.session_state.timer_running = True
-        st.session_state.timer_start = time.time()
-
-def pause_timer():
+def toggle_timer():
+    """Start if stopped; pause if running."""
     if st.session_state.timer_running:
+        # pause
         st.session_state.elapsed += time.time() - st.session_state.timer_start
         st.session_state.timer_running = False
+    else:
+        # start
+        st.session_state.timer_running = True
+        st.session_state.timer_start = time.time()
 
 def reset_timer():
     st.session_state.timer_running = False
@@ -159,10 +159,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------- Centered row for timer (right-aligned within the row) ----------
+# ---------- Centered row for timer (right-aligned inside the centered block) ----------
 row_left, row_right = st.columns([1, 1], vertical_alignment="center")
 with row_right:
-    # top line: label + timer pill
     st.markdown(
         f"<div class='ops-timer-row'>"
         f"<span class='ops-timer-label'>Timer</span>"
@@ -170,31 +169,19 @@ with row_right:
         f"</div>",
         unsafe_allow_html=True
     )
-
-    # second line: Start/Pause compact on left, Reset under the pill (right)
     left_btns, right_btn = st.columns([1, 1])
     with left_btns:
-        b1c, b2c = st.columns([1, 1])
-        with b1c:
-            st.container().markdown("", unsafe_allow_html=True)
-            st.container()  # spacer
-            st.markdown("<div class='ops-btn-sm'>", unsafe_allow_html=True)
-            st.button("Start", on_click=start_timer, key="ops_start")
-            st.markdown("</div>", unsafe_allow_html=True)
-        with b2c:
-            st.markdown("<div class='ops-btn-sm'>", unsafe_allow_html=True)
-            st.button("Pause", on_click=pause_timer, key="ops_pause")
-            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("<div class='ops-btn-sm'>", unsafe_allow_html=True)
+        st.button("Start / Pause" if not st.session_state.timer_running else "Pause / Start",
+                  on_click=toggle_timer, key="ops_toggle")
+        st.markdown("</div>", unsafe_allow_html=True)
     with right_btn:
         st.markdown("<div class='ops-btn-sm' style='display:flex; justify-content:flex-end;'>", unsafe_allow_html=True)
         st.button("Reset", on_click=reset_timer, key="ops_reset")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # tiny live toggle to enable/disable 1s autorefresh (avoids greying when off)
-    st.toggle("Live", key="timer_live", value=st.session_state.timer_live, help="Auto-update timer every second")
-
-# optional 1s auto-refresh ONLY when live is on
-if st.session_state.timer_live and hasattr(st, "autorefresh"):
+# Live update every second ONLY when running (lightweight; no sleep; no spinner)
+if st.session_state.timer_running and hasattr(st, "autorefresh"):
     st.autorefresh(interval=1000, key="ops_timer_tick")
 
 # ---------- Session state ----------
