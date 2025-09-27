@@ -14,15 +14,14 @@ st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centere
 
 # ---------- Styles ----------
 st.markdown("""
-<style>
-  [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
-  [data-testid="stDecoration"] {display: none;}
-  [data-testid="stStatusWidget"] {display: none;}
-  .qtext { font-style: normal; }
-  .qtext em, .qtext i { font-style: normal !important; }
-  .muted { color:#555; font-size:0.9rem; }
-  .page-title { font-size:1.6rem; font-weight:700; margin: 0.25rem 0 0.75rem 0; }
-</style>
+    <div style='width:100%; height:70px;
+      background: linear-gradient(90deg, #1E5A8A 0%, #F0342C 100%);
+      display:flex; align-items:center; justify-content:center;
+      margin-bottom:30px; border-radius:10px;'>
+        <h1 style='color:#fff; font-size:2rem; font-weight:700; margin:0; text-shadow:0 1px 2px rgba(0,0,0,.25);'>
+          OpSynergy PMP AI Quiz Generator
+        </h1>
+    </div>
 """, unsafe_allow_html=True)
 
 # ---------- Helpers ----------
