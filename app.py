@@ -12,10 +12,6 @@ import html  # for HTML escaping
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
-# ---------- BRAND COLORS ----------
-OP_BLUE = "#1E5A8A"   # OpSynergy blue
-OP_RED  = "#F0342C"   # OpSynergy red
-
 # ---------- Styles ----------
 st.markdown("""
 <style>
@@ -31,16 +27,26 @@ st.markdown("""
 
 # ---------- Helpers ----------
 def _strip_wrapped_emphasis(s: str) -> str:
+    # Remove wrapped emphasis markers while keeping contents
     s = re.sub(r'_(.+?)_', r'\1', s)
     s = re.sub(r'\*(.+?)\*', r'\1', s)
     return s
 
 def _break_inline_emphasis(s: str) -> str:
+    # Replace a_b / a*b joins with spaces
     s = re.sub(r'(?<=\w)_(?=\w)', ' ', s)
     s = re.sub(r'(?<=\w)\*(?=\w)', ' ', s)
     return s
 
 def safe_inline(text: str) -> str:
+    """
+    For HTML-rendered blocks (we'll pass unsafe_allow_html=True).
+    - Remove _..._ / *...* wrappers
+    - Break a_b / a*b joins
+    - Escape &, <, > (leave quotes so we don't get &#x27;)
+    - Replace $ with &#36; AFTER escaping so MathJax won't trigger
+    - Result can be inserted inside HTML safely.
+    """
     s = str(text)
     s = _strip_wrapped_emphasis(s)
     s = _break_inline_emphasis(s)
@@ -49,6 +55,13 @@ def safe_inline(text: str) -> str:
     return s
 
 def safe_plain(text: str) -> str:
+    """
+    For plain-text contexts (e.g., Streamlit radio labels).
+    - Remove _..._ / *...* wrappers
+    - Break a_b / a*b joins
+    - Insert ZWSP after $ so MathJax can't see a delimiter ($1 shows as $1)
+    - Do NOT HTML-escape (plain text).
+    """
     s = str(text)
     s = _strip_wrapped_emphasis(s)
     s = _break_inline_emphasis(s)
@@ -56,6 +69,7 @@ def safe_plain(text: str) -> str:
     return s
 
 def sanitize_explanation(raw_text: str) -> str:
+    """Remove any stray 'correct answer is X' claims and tidy whitespace."""
     if not isinstance(raw_text, str):
         raw_text = str(raw_text)
     txt = re.sub(r'(?i)\bthe\s+correct\s+answer\s+is\s+[A-D]\b[:.\s-]*', '', raw_text)
@@ -82,34 +96,13 @@ def reset_session():
     for k, v in keys_defaults.items():
         st.session_state[k] = v
 
-# ---------- Banner (brand gradient) ----------
-st.markdown(f"""
-    <div style='width:100%; height:70px;
-      background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
-      display:flex; align-items:center; justify-content:center;
-      margin-bottom:10px; border-radius:10px;'>
-        <h1 style='color:#fff; font-size:2rem; font-weight:700; margin:0;'>
-          OpSynergy PMP AI Quiz Generator
-        </h1>
+# ---------- Banner ----------
+st.markdown("""
+    <div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
+    display:flex; align-items:center; justify-content:center; margin-bottom:30px; border-radius:10px;'>
+        <h1 style='color:#222; font-size:2rem; font-weight:700;'>OpSynergy PMP AI Quiz Generator</h1>
     </div>
 """, unsafe_allow_html=True)
-
-# ---------- Simple always-on timer (top-right, no buttons/box) ----------
-if "app_timer_start" not in st.session_state:
-    st.session_state.app_timer_start = time.time()
-
-def _fmt_mm_ss(sec: int) -> str:
-    m, s = divmod(int(sec), 60)
-    return f"{m:02d}:{s:02d}"
-
-elapsed = time.time() - st.session_state.app_timer_start
-st.markdown(
-    f"<div style='display:flex; justify-content:flex-end; margin:0 0 8px 0;'>"
-    f"<span style='font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Courier New\", monospace;"
-    f"font-weight:800; letter-spacing:.04em; color:#222;'>{_fmt_mm_ss(elapsed)}</span>"
-    f"</div>",
-    unsafe_allow_html=True
-)
 
 # ---------- Session state ----------
 ss = st.session_state
@@ -290,16 +283,16 @@ if view == "quiz":
             if is_correct:
                 ss.score += 1
 
-            elapsed_q = round(time.time() - ss.question_start, 1) if ss.question_start else None
+            elapsed = round(time.time() - ss.question_start, 1) if ss.question_start else None
             ss.history.append({
                 "question": q["question"],
-                "choices": q["choices"],
+                "choices": q["choices"],  # keep originals for review (we sanitize on render)
                 "correct": q["correct"],
                 "chosen": selected[0],
                 "is_correct": is_correct,
                 "explanation": q.get("explanation", ""),
                 "rationales": q.get("rationales", {}),
-                "time_sec": elapsed_q,
+                "time_sec": elapsed,
                 "topic": topic.strip() or "Random",
                 "difficulty": difficulty
             })
@@ -413,7 +406,3 @@ st.markdown(
     "This tool is not affiliated with or endorsed by PMI.</small>",
     unsafe_allow_html=True
 )
-
-# ---------- Tick the timer once per second (simple + reliable) ----------
-time.sleep(1)
-st.experimental_rerun()
