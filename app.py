@@ -12,46 +12,20 @@ import html  # for HTML escaping
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
-# ===== Brand Colors =====
+# ---------- BRAND COLORS ----------
 OP_BLUE = "#1E5A8A"   # OpSynergy blue
 OP_RED  = "#F0342C"   # OpSynergy red
 
 # ---------- Styles ----------
-st.markdown(f"""
+st.markdown("""
 <style>
-  /* Center the whole app nicely on wide screens */
-  .block-container {{ max-width: 980px; margin-left: auto; margin-right: auto; }}
-
-  [data-testid="stToolbar"] {{visibility: hidden; height: 0; position: fixed;}}
-  [data-testid="stDecoration"] {{display: none;}}
-  [data-testid="stStatusWidget"] {{display: none;}}
-
-  .qtext {{ font-style: normal; }}
-  .qtext em, .qtext i {{ font-style: normal !important; }}
-  .muted {{ color:#555; font-size:0.9rem; }}
-  .page-title {{ font-size:1.6rem; font-weight:700; margin: 0.25rem 0 0.75rem 0; }}
-
-  /* Banner */
-  .ops-banner {{
-    width:100%; height:70px;
-    background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
-    display:flex; align-items:center; justify-content:center;
-    margin-bottom:12px; border-radius:14px;
-  }}
-  .ops-banner h1 {{
-    color:#fff; font-size:2rem; font-weight:700; margin:0;
-    text-shadow: 0 1px 2px rgba(0,0,0,.25);
-  }}
-
-  /* Simple, right-aligned timer text (no box) */
-  .ops-timer-row {{ display:flex; justify-content:flex-end; }}
-  .ops-time-plain {{
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    font-size: 1.05rem;
-    color: #222;
-  }}
+  [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
+  [data-testid="stDecoration"] {display: none;}
+  [data-testid="stStatusWidget"] {display: none;}
+  .qtext { font-style: normal; }
+  .qtext em, .qtext i { font-style: normal !important; }
+  .muted { color:#555; font-size:0.9rem; }
+  .page-title { font-size:1.6rem; font-weight:700; margin: 0.25rem 0 0.75rem 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,14 +45,14 @@ def safe_inline(text: str) -> str:
     s = _strip_wrapped_emphasis(s)
     s = _break_inline_emphasis(s)
     s = html.escape(s, quote=False)
-    s = s.replace('$', '&#36;')
+    s = s.replace('$', '&#36;')  # prevent MathJax in HTML context
     return s
 
 def safe_plain(text: str) -> str:
     s = str(text)
     s = _strip_wrapped_emphasis(s)
     s = _break_inline_emphasis(s)
-    s = s.replace('$', '$\u200B')
+    s = s.replace('$', '$\u200B')  # $ + zero-width space
     return s
 
 def sanitize_explanation(raw_text: str) -> str:
@@ -108,32 +82,34 @@ def reset_session():
     for k, v in keys_defaults.items():
         st.session_state[k] = v
 
-# ===== ALWAYS-ON TIMER (starts on first load, no controls) =====
-if "app_start_ts" not in st.session_state:
-    st.session_state.app_start_ts = time.time()  # start ticking now
+# ---------- Banner (brand gradient) ----------
+st.markdown(f"""
+    <div style='width:100%; height:70px;
+      background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
+      display:flex; align-items:center; justify-content:center;
+      margin-bottom:10px; border-radius:10px;'>
+        <h1 style='color:#fff; font-size:2rem; font-weight:700; margin:0;'>
+          OpSynergy PMP AI Quiz Generator
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
 
-def elapsed_seconds() -> int:
-    return max(0, int(time.time() - st.session_state.app_start_ts))
+# ---------- Simple always-on timer (top-right, no buttons/box) ----------
+if "app_timer_start" not in st.session_state:
+    st.session_state.app_timer_start = time.time()
 
-def fmt_mm_ss(total_seconds: int) -> str:
-    m, s = divmod(int(total_seconds), 60)
+def _fmt_mm_ss(sec: int) -> str:
+    m, s = divmod(int(sec), 60)
     return f"{m:02d}:{s:02d}"
 
-# ---------- Banner ----------
-st.markdown("<div class='ops-banner'><h1>OpSynergy PMP AI Quiz Generator</h1></div>", unsafe_allow_html=True)
-
-# ---------- Plain timer under banner, right-aligned ----------
+elapsed = time.time() - st.session_state.app_timer_start
 st.markdown(
-    f"<div class='ops-timer-row'><span class='ops-time-plain'>{fmt_mm_ss(elapsed_seconds())}</span></div>",
+    f"<div style='display:flex; justify-content:flex-end; margin:0 0 8px 0;'>"
+    f"<span style='font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Courier New\", monospace;"
+    f"font-weight:800; letter-spacing:.04em; color:#222;'>{_fmt_mm_ss(elapsed)}</span>"
+    f"</div>",
     unsafe_allow_html=True
 )
-
-# Live update once per second (non-blocking)
-try:
-    st.autorefresh(interval=1000, key="ops_timer_tick")
-except Exception:
-    # If very old Streamlit, skip autorefresh; timer will still update on interactions.
-    pass
 
 # ---------- Session state ----------
 ss = st.session_state
@@ -314,7 +290,7 @@ if view == "quiz":
             if is_correct:
                 ss.score += 1
 
-            elapsed = round(time.time() - ss.question_start, 1) if ss.question_start else None
+            elapsed_q = round(time.time() - ss.question_start, 1) if ss.question_start else None
             ss.history.append({
                 "question": q["question"],
                 "choices": q["choices"],
@@ -323,7 +299,7 @@ if view == "quiz":
                 "is_correct": is_correct,
                 "explanation": q.get("explanation", ""),
                 "rationales": q.get("rationales", {}),
-                "time_sec": elapsed,
+                "time_sec": elapsed_q,
                 "topic": topic.strip() or "Random",
                 "difficulty": difficulty
             })
@@ -437,3 +413,7 @@ st.markdown(
     "This tool is not affiliated with or endorsed by PMI.</small>",
     unsafe_allow_html=True
 )
+
+# ---------- Tick the timer once per second (simple + reliable) ----------
+time.sleep(1)
+st.experimental_rerun()
