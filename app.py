@@ -12,7 +12,7 @@ import html  # for HTML escaping
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
-# ===== Brand Colors (swap to exact hex if you have them) =====
+# ===== Brand Colors =====
 OP_BLUE = "#1E5A8A"   # OpSynergy blue
 OP_RED  = "#F0342C"   # OpSynergy red
 
@@ -39,7 +39,7 @@ st.markdown(f"""
     text-shadow: 0 1px 2px rgba(0,0,0,.25);
   }}
 
-  /* Overall timer (under banner, right) */
+  /* Overall timer */
   .ops-timer-pill {{
     display:inline-block;
     padding:8px 12px;
@@ -53,7 +53,13 @@ st.markdown(f"""
   }}
   .ops-timer-wrap {{ display:flex; justify-content:flex-end; align-items:center; gap:10px; }}
   .ops-timer-label {{ color:#444; font-size:0.95rem; font-weight:600; }}
-  .ops-small-btn button {{ padding:0.3rem 0.6rem; }}
+
+  /* Tighter/smaller timer buttons without shrinking the main "Generate" button */
+  div[data-testid="column"] .ops-timer-btn button {{
+    padding: 0.28rem 0.6rem;
+    font-size: 0.85rem;
+    margin: 0 2px;
+  }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -148,32 +154,34 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------- Overall timer row (under banner, right-aligned) ----------
-rowL, rowR = st.columns([3, 2], vertical_alignment="center")
-with rowR:
-    display_time = fmt_mm_ss(current_elapsed_seconds())
+# ---------- Overall timer row (under banner; right; tighter layout) ----------
+spacer, right = st.columns([2, 3], vertical_alignment="center")
+with right:
+    # top line: label + pill aligned to the right
     st.markdown(
         f"<div class='ops-timer-wrap'>"
         f"<span class='ops-timer-label'>Timer</span>"
-        f"<span class='ops-timer-pill'>{display_time}</span>"
+        f"<span class='ops-timer-pill'>{fmt_mm_ss(current_elapsed_seconds())}</span>"
         f"</div>",
         unsafe_allow_html=True
     )
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("Start"):
-            start_timer()
-    with c2:
-        if st.button("Pause"):
-            pause_timer()
-    with c3:
-        if st.button("Reset"):
-            reset_timer()
+    # second line: Start / Pause on the left, Reset aligned under the pill
+    leftBtns, resetCol = st.columns([2, 1])
+    with leftBtns:
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.button("Start", on_click=start_timer, key="ops_start", type="secondary", help="Start timer", use_container_width=False)
+            st.markdown("<div class='ops-timer-btn'></div>", unsafe_allow_html=True)
+        with c2:
+            st.button("Pause", on_click=pause_timer, key="ops_pause", type="secondary", help="Pause timer", use_container_width=False)
+            st.markdown("<div class='ops-timer-btn'></div>", unsafe_allow_html=True)
+    with resetCol:
+        st.button("Reset", on_click=reset_timer, key="ops_reset", type="secondary", help="Reset timer", use_container_width=True)
+        st.markdown("<div class='ops-timer-btn'></div>", unsafe_allow_html=True)
 
-# auto-refresh while running
-if st.session_state.timer_running:
-    time.sleep(1)
-    st.rerun()
+# smooth, non-blocking refresh while running (no page grey-out)
+if hasattr(st, "autorefresh") and st.session_state.timer_running:
+    st.autorefresh(interval=1000, key="ops_timer_tick")
 
 # ---------- Session state ----------
 ss = st.session_state
