@@ -36,33 +36,34 @@ st.markdown(f"""
     width:100%; height:70px;
     background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
     display:flex; align-items:center; justify-content:center;
-    margin-bottom:10px; border-radius:14px;
+    margin-bottom:14px; border-radius:14px;
   }}
   .ops-banner h1 {{
     color:#fff; font-size:2rem; font-weight:700; margin:0;
     text-shadow: 0 1px 2px rgba(0,0,0,.25);
   }}
 
-  /* Timer cluster */
-  .ops-timer-row {{ display:flex; align-items:flex-start; justify-content:flex-end; gap:12px; }}
-  .ops-timer-pill {{
-    display:inline-block;
-    padding:8px 12px;
-    border-radius:10px;
-    background: rgba(0,0,0,.06);
-    border: 1px solid rgba(0,0,0,.12);
-    font-weight:700;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
-    min-width: 92px;
-    text-align:center;
+  /* Timer card (compact container that holds label, time, and buttons) */
+  .ops-timer-card {{
+    display:flex; align-items:center; gap:10px;
+    padding:8px 10px; border-radius:12px;
+    background: rgba(0,0,0,.035);
+    border: 1px solid rgba(0,0,0,.10);
   }}
-  .ops-timer-label {{ color:#444; font-size:0.95rem; font-weight:600; line-height:1.1; padding-top:4px; }}
-
-  /* Compact buttons only in the timer area */
-  .ops-btn-sm button {{
+  .ops-timer-row {{ display:flex; justify-content:flex-end; }}
+  .ops-timer-label {{ color:#444; font-size:0.95rem; font-weight:600; }}
+  .ops-time {{
+    padding:6px 10px; border-radius:8px;
+    background:#fff; border:1px solid rgba(0,0,0,.12);
+    font-weight:700; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+    min-width:76px; text-align:center;
+  }}
+  /* Compact icon buttons only for timer */
+  .ops-icon button {{
     padding: 0.28rem 0.6rem !important;
-    font-size: 0.85rem !important;
-    margin: 0 4px !important;
+    font-size: 0.95rem !important;
+    line-height: 1 !important;
+    margin: 0 2px !important;
   }}
 </style>
 """, unsafe_allow_html=True)
@@ -120,7 +121,7 @@ def reset_session():
     for k, v in keys_defaults.items():
         st.session_state[k] = v
 
-# ===== OVERALL TIMER (Start/Pause toggle + Reset) =====
+# ===== OVERALL TIMER (▶︎ / ⏸ toggle + ↻ reset) =====
 if "timer_running" not in st.session_state:
     st.session_state.timer_running = False
 if "timer_start" not in st.session_state:
@@ -129,13 +130,12 @@ if "elapsed" not in st.session_state:
     st.session_state.elapsed = 0.0
 
 def toggle_timer():
-    """Start if stopped; pause if running."""
     if st.session_state.timer_running:
-        # pause
+        # Pause
         st.session_state.elapsed += time.time() - st.session_state.timer_start
         st.session_state.timer_running = False
     else:
-        # start
+        # Start
         st.session_state.timer_running = True
         st.session_state.timer_start = time.time()
 
@@ -154,35 +154,53 @@ def fmt_mm_ss(total_seconds: int) -> str:
     return f"{m:02d}:{s:02d}"
 
 # ---------- Banner ----------
-st.markdown(
-    "<div class='ops-banner'><h1>OpSynergy PMP AI Quiz Generator</h1></div>",
-    unsafe_allow_html=True
-)
+st.markdown("<div class='ops-banner'><h1>OpSynergy PMP AI Quiz Generator</h1></div>", unsafe_allow_html=True)
 
-# ---------- Centered row for timer (right-aligned inside the centered block) ----------
-row_left, row_right = st.columns([1, 1], vertical_alignment="center")
-with row_right:
+# ---------- Timer (in a compact card, right edge of centered container) ----------
+st.markdown("<div class='ops-timer-row'>", unsafe_allow_html=True)
+timer_col = st.container()
+with timer_col:
+    label = "Timer"
+    time_text = fmt_mm_ss(current_elapsed_seconds())
+    icon_toggle = "▶︎" if not st.session_state.timer_running else "⏸"
     st.markdown(
-        f"<div class='ops-timer-row'>"
-        f"<span class='ops-timer-label'>Timer</span>"
-        f"<span class='ops-timer-pill'>{fmt_mm_ss(current_elapsed_seconds())}</span>"
+        f"<div class='ops-timer-card'>"
+        f"<span class='ops-timer-label'>{label}</span>"
+        f"<span class='ops-time'>{time_text}</span>"
         f"</div>",
         unsafe_allow_html=True
     )
-    left_btns, right_btn = st.columns([1, 1])
-    with left_btns:
-        st.markdown("<div class='ops-btn-sm'>", unsafe_allow_html=True)
-        st.button("Start / Pause" if not st.session_state.timer_running else "Pause / Start",
-                  on_click=toggle_timer, key="ops_toggle")
+    # place the buttons right under the card, right-aligned and compact
+    c_left, c_right = st.columns([1, 1])
+    with c_left:
+        st.markdown("<div class='ops-icon'>", unsafe_allow_html=True)
+        st.button(icon_toggle, key="ops_toggle", on_click=toggle_timer, help="Start/Pause")
         st.markdown("</div>", unsafe_allow_html=True)
-    with right_btn:
-        st.markdown("<div class='ops-btn-sm' style='display:flex; justify-content:flex-end;'>", unsafe_allow_html=True)
-        st.button("Reset", on_click=reset_timer, key="ops_reset")
+    with c_right:
+        st.markdown("<div class='ops-icon' style='display:flex; justify-content:flex-end;'>", unsafe_allow_html=True)
+        st.button("↻", key="ops_reset", on_click=reset_timer, help="Reset")
         st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
-# Live update every second ONLY when running (lightweight; no sleep; no spinner)
-if st.session_state.timer_running and hasattr(st, "autorefresh"):
-    st.autorefresh(interval=1000, key="ops_timer_tick")
+# Live update every second ONLY when running (no sleep; no spinner)
+# Use st_autorefresh for broad compatibility.
+if st.session_state.timer_running:
+    try:
+        st_autorefresh = st.autorefresh  # newer API (Streamlit ≥1.36)
+    except AttributeError:
+        from streamlit.runtime.scriptrunner import RerunData, RerunException  # noqa: F401
+        from streamlit.runtime.scriptrunner import add_script_run_ctx  # noqa: F401
+        # Fallback to legacy API name if available
+        try:
+            from streamlit import experimental_rerun as _legacy  # type: ignore
+        except Exception:
+            _legacy = None
+        # try st.experimental_rerun every ~1s by creating a benign widget tick
+    try:
+        st.autorefresh(interval=1000, key="ops_timer_tick")
+    except Exception:
+        # very old versions: create a hidden empty placeholder that forces a rerun
+        st.write("")  # no-op
 
 # ---------- Session state ----------
 ss = st.session_state
