@@ -12,64 +12,78 @@ import html  # for HTML escaping
 
 st.set_page_config(page_title="OpSynergy PMP AI Quiz Generator", layout="centered")
 
+# ===== Brand Colors (swap to exact hex if you have them) =====
+OP_BLUE = "#1E5A8A"   # OpSynergy blue (approx from your screenshot)
+OP_RED  = "#F0342C"   # OpSynergy red  (approx from your logo)
+
 # ---------- Styles ----------
-st.markdown("""
+st.markdown(f"""
 <style>
-  [data-testid="stToolbar"] {visibility: hidden; height: 0; position: fixed;}
-  [data-testid="stDecoration"] {display: none;}
-  [data-testid="stStatusWidget"] {display: none;}
-  .qtext { font-style: normal; }
-  .qtext em, .qtext i { font-style: normal !important; }
-  .muted { color:#555; font-size:0.9rem; }
-  .page-title { font-size:1.6rem; font-weight:700; margin: 0.25rem 0 0.75rem 0; }
+  [data-testid="stToolbar"] {{visibility: hidden; height: 0; position: fixed;}}
+  [data-testid="stDecoration"] {{display: none;}}
+  [data-testid="stStatusWidget"] {{display: none;}}
+  .qtext {{ font-style: normal; }}
+  .qtext em, .qtext i {{ font-style: normal !important; }}
+  .muted {{ color:#555; font-size:0.9rem; }}
+  .page-title {{ font-size:1.6rem; font-weight:700; margin: 0.25rem 0 0.75rem 0; }}
+
+  /* Banner */
+  .ops-banner {{
+    width:100%; height:70px;
+    background: linear-gradient(90deg, {OP_BLUE} 0%, {OP_RED} 100%);
+    display:flex; align-items:center; justify-content:center;
+    margin-bottom:10px; border-radius:10px;
+  }}
+  .ops-banner h1 {{
+    color:#fff; font-size:2rem; font-weight:700; margin:0;
+    text-shadow: 0 1px 2px rgba(0,0,0,.25);
+  }}
+
+  /* Timer pill under banner (right side) */
+  .ops-timer-pill {{
+    display:inline-block;
+    padding:8px 12px;
+    border-radius:10px;
+    background: rgba(0,0,0,.06);
+    border: 1px solid rgba(0,0,0,.12);
+    font-weight:700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    min-width: 92px;
+    text-align:center;
+  }}
+  .ops-timer-wrap {{ display:flex; justify-content:flex-end; align-items:center; gap:8px; }}
+  .ops-timer-label {{ color:#444; font-size:0.9rem; }}
+  .ops-small-btn button {{ padding:0.3rem 0.6rem; }}
 </style>
 """, unsafe_allow_html=True)
 
 # ---------- Helpers ----------
 def _strip_wrapped_emphasis(s: str) -> str:
-    # Remove wrapped emphasis markers while keeping contents
     s = re.sub(r'_(.+?)_', r'\1', s)
     s = re.sub(r'\*(.+?)\*', r'\1', s)
     return s
 
 def _break_inline_emphasis(s: str) -> str:
-    # Replace a_b / a*b joins with spaces
     s = re.sub(r'(?<=\w)_(?=\w)', ' ', s)
     s = re.sub(r'(?<=\w)\*(?=\w)', ' ', s)
     return s
 
 def safe_inline(text: str) -> str:
-    """
-    For HTML-rendered blocks (we'll pass unsafe_allow_html=True).
-    - Remove _..._ / *...* wrappers
-    - Break a_b / a*b joins
-    - Escape &, <, > (leave quotes so we don't get &#x27;)
-    - Replace $ with &#36; AFTER escaping so MathJax won't trigger
-    - Result can be inserted inside HTML safely.
-    """
     s = str(text)
     s = _strip_wrapped_emphasis(s)
     s = _break_inline_emphasis(s)
     s = html.escape(s, quote=False)
-    s = s.replace('$', '&#36;')  # prevent MathJax in HTML context
+    s = s.replace('$', '&#36;')
     return s
 
 def safe_plain(text: str) -> str:
-    """
-    For plain-text contexts (e.g., Streamlit radio labels).
-    - Remove _..._ / *...* wrappers
-    - Break a_b / a*b joins
-    - Insert ZWSP after $ so MathJax can't see a delimiter ($​1 shows as $1)
-    - Do NOT HTML-escape (plain text).
-    """
     s = str(text)
     s = _strip_wrapped_emphasis(s)
     s = _break_inline_emphasis(s)
-    s = s.replace('$', '$\u200B')  # $ + zero-width space
+    s = s.replace('$', '$\u200B')
     return s
 
 def sanitize_explanation(raw_text: str) -> str:
-    """Remove any stray 'correct answer is X' claims and tidy whitespace."""
     if not isinstance(raw_text, str):
         raw_text = str(raw_text)
     txt = re.sub(r'(?i)\bthe\s+correct\s+answer\s+is\s+[A-D]\b[:.\s-]*', '', raw_text)
@@ -96,13 +110,70 @@ def reset_session():
     for k, v in keys_defaults.items():
         st.session_state[k] = v
 
+# ===== Timer helpers (under-banner, auto-start per question) =====
+if "timer_end" not in st.session_state:
+    st.session_state.timer_end = None
+if "time_up" not in st.session_state:
+    st.session_state.time_up = False
+if "timer_duration" not in st.session_state:
+    st.session_state.timer_duration = 120  # default seconds
+
+def start_timer(seconds: int):
+    st.session_state.timer_end = time.time() + int(seconds)
+    st.session_state.time_up = False
+
+def clear_timer():
+    st.session_state.timer_end = None
+    st.session_state.time_up = False
+
+def seconds_remaining():
+    if st.session_state.timer_end is None:
+        return None
+    return max(0, int(st.session_state.timer_end - time.time()))
+
+def fmt_mm_ss(total_seconds: int) -> str:
+    m, s = divmod(max(0, int(total_seconds)), 60)
+    return f"{m:02d}:{s:02d}"
+
 # ---------- Banner ----------
-st.markdown("""
-    <div style='width:100%; height:70px; background: linear-gradient(90deg, #D32F2F 0%, #FFFFFF 50%, #1976D2 100%);
-    display:flex; align-items:center; justify-content:center; margin-bottom:30px; border-radius:10px;'>
-        <h1 style='color:#222; font-size:2rem; font-weight:700;'>OpSynergy PMP AI Quiz Generator</h1>
-    </div>
-""", unsafe_allow_html=True)
+st.markdown(
+    "<div class='ops-banner'><h1>OpSynergy PMP AI Quiz Generator</h1></div>",
+    unsafe_allow_html=True
+)
+
+# ---------- Under-banner right timer row ----------
+# This sits visually between the banner and the Topic/Difficulty inputs
+rowL, rowR = st.columns([3, 2], vertical_alignment="center")
+with rowR:
+    rem = seconds_remaining()
+    display = "—" if rem is None else fmt_mm_ss(rem)
+    # right-aligned timer + small controls
+    st.markdown(
+        f"<div class='ops-timer-wrap'>"
+        f"<span class='ops-timer-label'>Time per question</span>"
+        f"<span class='ops-timer-pill'>{display}</span>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+    # tiny controls underneath (optional)
+    with st.expander("Timer settings", expanded=False):
+        st.session_state.timer_duration = st.number_input(
+            "Seconds", min_value=30, max_value=3600,
+            value=st.session_state.timer_duration, step=15
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Start / Reset"):
+                start_timer(st.session_state.timer_duration)
+        with c2:
+            if st.button("Clear"):
+                clear_timer()
+
+# keep the page ticking if timer is running
+if seconds_remaining() is not None and seconds_remaining() > 0:
+    # light touch to refresh roughly once a second
+    time.sleep(1)
+    st.rerun()
 
 # ---------- Session state ----------
 ss = st.session_state
@@ -248,6 +319,8 @@ if view == "quiz":
                 ss.show_result = False
                 ss.selected_answer = None
                 ss.question_start = time.time()
+                # start the per-question countdown
+                start_timer(st.session_state.timer_duration)
         except Exception as e:
             st.error("Sorry, something went wrong parsing the question.")
             st.caption(f"{e}")
@@ -272,7 +345,8 @@ if view == "quiz":
             options=display_options,
             format_func=lambda x: f"{x[0]}. {x[1]}",
             index=None,
-            key="selected_answer"
+            key="selected_answer",
+            disabled=bool(st.session_state.time_up)  # lock if time's up
         )
 
         # Grade first selection
@@ -286,7 +360,7 @@ if view == "quiz":
             elapsed = round(time.time() - ss.question_start, 1) if ss.question_start else None
             ss.history.append({
                 "question": q["question"],
-                "choices": q["choices"],  # keep originals for review (we sanitize on render)
+                "choices": q["choices"],
                 "correct": q["correct"],
                 "chosen": selected[0],
                 "is_correct": is_correct,
@@ -296,6 +370,12 @@ if view == "quiz":
                 "topic": topic.strip() or "Random",
                 "difficulty": difficulty
             })
+
+        # If timer hit zero, mark as time up once (and lock inputs)
+        rem_now = seconds_remaining()
+        if rem_now == 0 and not st.session_state.time_up:
+            st.session_state.time_up = True
+            st.warning("Time is up for this question.")
 
         # Show result
         if ss.show_result and selected:
