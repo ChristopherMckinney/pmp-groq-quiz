@@ -27,49 +27,31 @@ st.markdown("""
 
 # ---------- Helpers ----------
 def _strip_wrapped_emphasis(s: str) -> str:
-    # Remove wrapped emphasis markers while keeping contents
     s = re.sub(r'_(.+?)_', r'\1', s)
     s = re.sub(r'\*(.+?)\*', r'\1', s)
     return s
 
 def _break_inline_emphasis(s: str) -> str:
-    # Replace a_b / a*b joins with spaces
     s = re.sub(r'(?<=\w)_(?=\w)', ' ', s)
     s = re.sub(r'(?<=\w)\*(?=\w)', ' ', s)
     return s
 
 def safe_inline(text: str) -> str:
-    """
-    For HTML-rendered blocks (we'll pass unsafe_allow_html=True).
-    - Remove _..._ / *...* wrappers
-    - Break a_b / a*b joins
-    - Escape &, <, > (leave quotes so we don't get &#x27;)
-    - Replace $ with &#36; AFTER escaping so MathJax won't trigger
-    - Result can be inserted inside HTML safely.
-    """
     s = str(text)
     s = _strip_wrapped_emphasis(s)
     s = _break_inline_emphasis(s)
     s = html.escape(s, quote=False)
-    s = s.replace('$', '&#36;')  # prevent MathJax in HTML context
+    s = s.replace('$', '&#36;')
     return s
 
 def safe_plain(text: str) -> str:
-    """
-    For plain-text contexts (e.g., Streamlit radio labels).
-    - Remove _..._ / *...* wrappers
-    - Break a_b / a*b joins
-    - Insert ZWSP after $ so MathJax can't see a delimiter ($1 shows as $1)
-    - Do NOT HTML-escape (plain text).
-    """
     s = str(text)
     s = _strip_wrapped_emphasis(s)
     s = _break_inline_emphasis(s)
-    s = s.replace('$', '$\u200B')  # $ + zero-width space
+    s = s.replace('$', '$\u200B')
     return s
 
 def sanitize_explanation(raw_text: str) -> str:
-    """Remove any stray 'correct answer is X' claims and tidy whitespace."""
     if not isinstance(raw_text, str):
         raw_text = str(raw_text)
     txt = re.sub(r'(?i)\bthe\s+correct\s+answer\s+is\s+[A-D]\b[:.\s-]*', '', raw_text)
@@ -99,10 +81,11 @@ def reset_session():
 # ---------- Banner (OpSynergy gradient) ----------
 st.markdown("""
     <div style='width:100%; height:70px;
-      background: linear-gradient(90deg, #1E5A8A 0%, #F0342C 100%);
+      background: linear-gradient(90deg, #216A9E 0%, #FF2728 100%);
       display:flex; align-items:center; justify-content:center;
       margin-bottom:30px; border-radius:10px;'>
-        <h1 style='color:#fff; font-size:2rem; font-weight:700; margin:0; text-shadow:0 1px 2px rgba(0,0,0,.25);'>
+        <h1 style='color:#fff; font-size:2rem; font-weight:700; margin:0;
+                   text-shadow:0 1px 2px rgba(0,0,0,.25);'>
           OpSynergy PMP AI Quiz Generator
         </h1>
     </div>
@@ -124,7 +107,7 @@ def shuffle_answers(data: dict) -> dict:
 
     new_labels = ["A", "B", "C", "D"]
     new_choices, new_rationales = {}, {}
-    new_correct_letter = "A"  # fallback
+    new_correct_letter = "A"
 
     for i, (old_label, text) in enumerate(original_items):
         nl = new_labels[i]
@@ -171,23 +154,57 @@ def difficulty_instructions(level: str) -> str:
                 "Avoid deep ambiguity. One clearly best answer.")
     if level == "Hard":
         return ("Use complex, realistic scenarios with competing constraints and multiple plausible options. "
-                "Require judgment to select the best right answer. Distractors must be strong and tempting.")
+                "Require judgment to select the best right answer. Distractors must be strong.")
     return ("Use situational questions with moderate complexity that test application of concepts, "
-            "stakeholder analysis, sequencing, and change control without being overly ambiguous.")
+            "stakeholder analysis, sequencing, and change control without excess ambiguity.")
 
+# ---------- TRUE RANDOMIZED PROMPT GENERATION ----------
 def generate_prompt(topic, level):
     random_id = str(uuid.uuid4())
-    topic_clean = topic.strip() if topic.strip() else "Any PMP-related topic"
+
+    categories = [
+        "Project Integration Management",
+        "Project Scope Management",
+        "Project Schedule Management",
+        "Critical Path analysis",
+        "Project Cost Management",
+        "Earned Value Management",
+        "Project Quality Management",
+        "Project Resource Management",
+        "Project Communications Management",
+        "Project Risk Management",
+        "Project Procurement Management",
+        "Project Stakeholder Management",
+        "Agile and Hybrid approaches",
+        "Scrum roles and events",
+        "Kanban practices",
+        "Contract types such as Firm Fixed Price or Time and Materials",
+        "Estimating methods",
+        "Change control",
+        "Leadership and team development",
+        "Conflict resolution",
+        "Governance and compliance"
+    ]
+
+    if topic.strip():
+        selected = topic.strip()
+    else:
+        selected = random.choice(categories)
+
     topic_prompt = random.choice([
-        f"Generate a PMP exam-style multiple-choice question related to {topic_clean}, using a realistic project scenario.",
-        f"Write a scenario-based PMP question involving {topic_clean}, focusing on application and judgment.",
-        f"Create a challenging PMP question using {topic_clean} in a real-world situation."
+        f"Generate a PMP exam-style scenario question from the domain: {selected}.",
+        f"Write a realistic PMP scenario-based question focused on: {selected}.",
+        f"Create a unique PMP exam question related to: {selected}.",
     ])
+
     return f"""
+Before generating the question, avoid repetitive structures such as 'You are a project manager and you have a problem.'
+Vary scenario type, tone, setting, and narrative style.
+
 {topic_prompt}
 Difficulty guidance: {difficulty_instructions(level)}
 
-Return only valid JSON in this exact schema:
+Return ONLY valid JSON in this schema:
 {{
   "question": "Your question here",
   "choices": {{
@@ -197,23 +214,22 @@ Return only valid JSON in this exact schema:
     "D": "Option D"
   }},
   "correct": "B",
-  "explanation": "Reasoning only. Do not mention any option letter or say which answer is correct.",
+  "explanation": "Reasoning only. Do not mention which option is correct.",
   "rationales": {{
-    "A": "One-sentence reason addressing A.",
-    "B": "One-sentence reason addressing B.",
-    "C": "One-sentence reason addressing C.",
-    "D": "One-sentence reason addressing D."
+    "A": "Reason for A.",
+    "B": "Reason for B.",
+    "C": "Reason for C.",
+    "D": "Reason for D."
   }}
 }}
 
 Rules:
-- 'correct' must be a single letter A, B, C, or D.
-- 'explanation' provides reasoning ONLY. Do not restate which option is correct.
-- Each 'rationales' entry gives a concise justification for that option (why it is right or not best).
-- Do not include markdown, comments, or extra text — only raw JSON.
-- The question must be unique and suitable for PMP preparation.
+- 'correct' must be A, B, C, or D.
+- Explanation must NOT refer to the correct letter.
+- The scenario must align ONLY with the selected domain: {selected}.
+- Make the structure different from previous typical PMP exam questions.
 
-Session ID: {random_id}
+Session: {random_id}
 """
 
 def parse_question(raw_text):
@@ -229,7 +245,6 @@ def parse_question(raw_text):
 view = get_view()
 
 if view == "quiz":
-    # Inputs row
     col1, col2 = st.columns([3, 2])
     with col1:
         topic = st.text_input(
@@ -241,7 +256,6 @@ if view == "quiz":
     with col2:
         difficulty = st.selectbox("Difficulty", options=["Easy", "Moderate", "Hard"], index=1)
 
-    # Generate button
     if st.button("Generate New Question"):
         try:
             with st.spinner("Generating..."):
@@ -256,7 +270,6 @@ if view == "quiz":
             st.error("Sorry, something went wrong parsing the question.")
             st.caption(f"{e}")
 
-    # Render question flow
     if ss.question_data:
         q = ss.question_data
 
@@ -269,7 +282,6 @@ if view == "quiz":
             unsafe_allow_html=True
         )
 
-        # Build sanitized radio options (plain text safe)
         display_options = [(L, safe_plain(txt)) for L, txt in q["choices"].items()]
         selected = st.radio(
             "Choose your answer:",
@@ -279,7 +291,6 @@ if view == "quiz":
             key="selected_answer"
         )
 
-        # Grade first selection
         if selected and not ss.show_result:
             ss.show_result = True
             ss.total += 1
@@ -290,7 +301,7 @@ if view == "quiz":
             elapsed = round(time.time() - ss.question_start, 1) if ss.question_start else None
             ss.history.append({
                 "question": q["question"],
-                "choices": q["choices"],  # keep originals for review (we sanitize on render)
+                "choices": q["choices"],
                 "correct": q["correct"],
                 "chosen": selected[0],
                 "is_correct": is_correct,
@@ -301,7 +312,6 @@ if view == "quiz":
                 "difficulty": difficulty
             })
 
-        # Show result
         if ss.show_result and selected:
             if selected[0] == q["correct"]:
                 st.success("Correct.")
@@ -326,7 +336,6 @@ if view == "quiz":
 
             st.markdown(f"<div>Score: {ss.score} out of {ss.total} this session</div>", unsafe_allow_html=True)
 
-    # Footer actions for quiz view
     st.markdown("---")
     colL, colR = st.columns([2, 3])
     with colL:
@@ -376,7 +385,6 @@ else:  # view == "review"
                     st.markdown(f"<ul>{''.join(items)}</ul>", unsafe_allow_html=True)
                 st.markdown("---")
 
-        # CSV export
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["topic","difficulty","question","choice_A","choice_B","choice_C","choice_D","chosen","correct","is_correct","time_sec","explanation"])
